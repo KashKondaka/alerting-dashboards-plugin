@@ -32,12 +32,16 @@ import { BehaviorSubject } from 'rxjs';
 import { dataSourceObservable } from './pages/utils/constants';
 import { ContentManagementPluginStart } from '../../../src/plugins/content_management/public';
 import { registerAlertsCard } from './utils/helpers';
+import type { ExplorePluginSetup } from '../../../src/plugins/explore/public';
+import { ResultStatus } from '../../../src/plugins/data/public'
 
 declare module '../../../src/plugins/ui_actions/public' {
   export interface ActionContextMapping {
     [ACTION_ALERTING]: {};
   }
 }
+
+let navigateToAppRef: CoreStart['application']['navigateToApp'] | null = null;
 
 export interface AlertingSetup { }
 
@@ -49,6 +53,7 @@ export interface AlertingSetupDeps {
   dataSourceManagement: DataSourceManagementPluginSetup;
   dataSource: DataSourcePluginSetup;
   assistantDashboards?: AssistantSetup;
+  explore: ExplorePluginSetup;
 }
 
 export interface AlertingStartDeps {
@@ -79,12 +84,17 @@ export class AlertingPlugin implements Plugin<void, AlertingStart, AlertingSetup
   private appStateUpdater = new BehaviorSubject<AppUpdater>(this.updateDefaultRouteOfManagementApplications);
 
 
-  public setup(core: CoreSetup<AlertingStartDeps, AlertingStart>, { expressions, uiActions, dataSourceManagement, dataSource, assistantDashboards }: AlertingSetupDeps) {
+  public setup(core: CoreSetup<AlertingStartDeps, AlertingStart>, { expressions, uiActions, dataSourceManagement, dataSource, assistantDashboards, explore }: AlertingSetupDeps) {
 
+    // const mountWrapper = async (params: AppMountParameters, redirect: string) => {
+    //   const { renderApp } = await import("./app");
+    //   const [coreStart] = await core.getStartServices();
+    //   return renderApp(coreStart, params, redirect);
+    // };
     const mountWrapper = async (params: AppMountParameters, redirect: string) => {
       const { renderApp } = await import("./app");
-      const [coreStart] = await core.getStartServices();
-      return renderApp(coreStart, params, redirect);
+      const [coreStart, depsStart] = await core.getStartServices();
+      return renderApp(coreStart, depsStart, params, redirect);
     };
     core.application.register({
       id: PLUGIN_NAME,
@@ -96,10 +106,15 @@ export class AlertingPlugin implements Plugin<void, AlertingStart, AlertingSetup
         order: 2000,
       },
       order: 4000,
+      // mount: async (params) => {
+      //   const { renderApp } = await import('./app');
+      //   const [coreStart] = await core.getStartServices();
+      //   return renderApp(coreStart, params);
+      // },
       mount: async (params) => {
         const { renderApp } = await import('./app');
-        const [coreStart] = await core.getStartServices();
-        return renderApp(coreStart, params);
+        const [coreStart, depsStart] = await core.getStartServices();
+        return renderApp(coreStart, depsStart, params);
       },
     });
 
@@ -228,9 +243,46 @@ export class AlertingPlugin implements Plugin<void, AlertingStart, AlertingSetup
     const adAction = getAdAction();
     uiActions.registerTrigger(alertingTriggerAd);
     uiActions.addTriggerAction(alertingTriggerAd.id, adAction);
+
+    /**
+     * Register an action in Explore's Query Panel "Actions" menu
+     * that deep-links users into Alerting's create-monitor (PPL) flow.
+     */
+    explore.queryPanelActionsRegistry.register({
+      id: 'alerting-create-monitor-from-explore',
+      order: 1,
+      getIsEnabled: (deps) => {
+        // Allow monitor creation for READY, NO_RESULTS, and ERROR statuses
+        const allowedStatuses = [ResultStatus.READY, ResultStatus.NO_RESULTS, ResultStatus.ERROR];
+        const isStatusAllowed = allowedStatuses.includes(deps.resultStatus.status);
+        
+        // Check if data source is AOSS collection - if so, disable the button
+        const isAOSSCollection = deps.query?.dataset?.dataSource?.type === 'OpenSearch Serverless';
+        
+        return isStatusAllowed && !isAOSSCollection;
+      },
+      getLabel: () => 'Create monitor',
+      getIcon: () => 'bell',
+      onClick: (deps) => {
+        const query = deps.query?.query ?? '';
+        const dataSourceId = deps.query?.dataset?.dataSource?.id;
+        
+        // Build URL with both query and data source ID
+        const urlParams = new URLSearchParams();
+        urlParams.set('ppl', query);
+        if (dataSourceId) {
+          urlParams.set('dataSourceId', dataSourceId);
+        }
+        
+        navigateToAppRef?.(MONITORS_NAV_ID, {
+          path: `#/create-monitor?${urlParams.toString()}`
+        });
+      },
+    });
   }
 
   public start(core: CoreStart, { visAugmenter, embeddable, data, navigation, contentManagement, assistantDashboards }: AlertingStartDeps): AlertingStart {
+    navigateToAppRef = core.application.navigateToApp;
     setEmbeddable(embeddable);
     setOverlays(core.overlays);
     setQueryService(data.query);

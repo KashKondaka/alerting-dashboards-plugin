@@ -14,15 +14,21 @@ import {
 import { conditionToExpressions } from '../../../../CreateTrigger/utils/helper';
 
 // Convert Monitor JSON to Formik values used in UI forms
-export default function monitorToFormik(monitor) {
+export default function monitorToFormik(monitorIn) {
+  // Accept v2 wrappers transparently
+  const monitor =
+    monitorIn?.monitor_v2?.ppl_monitor ||
+    monitorIn?.ppl_monitor ||
+    monitorIn ||
+    {};
   const formikValues = _.cloneDeep(FORMIK_INITIAL_VALUES);
   if (!monitor) return formikValues;
   const {
     name,
     monitor_type,
     enabled,
-    schedule: { cron: { expression: cronExpression = formikValues.cronExpression, timezone } = {} },
-    inputs,
+    schedule: { cron: { expression: cronExpression = formikValues.cronExpression, timezone } = {} } = {},
+    inputs = [],
     ui_metadata: { schedule = {}, search = {} } = {},
     monitorOptions = [],
   } = monitor;
@@ -58,12 +64,18 @@ export default function monitorToFormik(monitor) {
           searchType: preventVisualEditor ? 'query' : 'graph',
         };
       default:
-        return {
-          index: indicesToFormik(inputs[0].search.indices),
-          query: JSON.stringify(inputs[0].search.query, null, 4),
-        };
+      const idx = inputs?.[0]?.search?.indices || [];
+      const q = inputs?.[0]?.search?.query ?? {};
+      return {
+        index: indicesToFormik(idx),
+        query: JSON.stringify(q, null, 4),
+      };
     }
   };
+
+  // Extract PPL-specific fields if present
+  const pplQuery = monitor.query || '';
+  const timestampField = monitor.timestamp_field || '@timestamp';
 
   return {
     /* INITIALIZE WITH DEFAULTS */
@@ -86,6 +98,10 @@ export default function monitorToFormik(monitor) {
     timezone: timezone ? [{ label: timezone }] : [],
     detectorId: isAD ? _.get(inputs, INPUTS_DETECTOR_ID) : undefined,
     adResultIndex: isAD ? _.get(inputs, '0.search.indices.0') : undefined,
+
+    /* PPL-specific fields */
+    ...(pplQuery ? { pplQuery } : {}),
+    ...(monitor.timestamp_field ? { timestampField } : {}),
   };
 }
 

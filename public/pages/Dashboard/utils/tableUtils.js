@@ -18,6 +18,12 @@ export const renderTime = (time, options = { showFromNow: false }) => {
   return DEFAULT_EMPTY_DATA;
 };
 
+// UTC renderer for the new Last Triggered Time column
+export const renderUtcTime = (time) => {
+  const m = moment.utc(time);
+  return time && m.isValid() ? m.format('MM/DD/YY HH:mm:ss') : DEFAULT_EMPTY_DATA;
+};
+
 export const queryColumns = [
   {
     field: 'start_time',
@@ -58,14 +64,14 @@ export const queryColumns = [
         typeof state !== 'string' ? DEFAULT_EMPTY_DATA : _.capitalize(state.toLowerCase());
       return state === ALERT_STATE.ERROR ? `${stateText}: ${alert.error_message}` : stateText;
     },
-  },
-  {
-    field: 'acknowledged_time',
-    name: 'Time acknowledged',
-    sortable: true,
-    truncateText: false,
-    render: renderTime,
-    dataType: 'date',
+  // },
+  // {
+  //   field: 'acknowledged_time',
+  //   name: 'Time acknowledged',
+  //   sortable: true,
+  //   truncateText: false,
+  //   render: renderTime,
+  //   dataType: 'date',
   },
 ];
 
@@ -171,45 +177,31 @@ export const alertColumns = (
     },
   },
   {
-    field: 'ACTIVE',
-    name: 'Active',
-    sortable: true,
-    truncateText: false,
-  },
-  {
-    field: 'ACKNOWLEDGED',
-    name: 'Acknowledged',
-    sortable: true,
-    truncateText: false,
-  },
-  {
-    field: 'ERROR',
-    name: 'Errors',
-    sortable: true,
-    truncateText: false,
-  },
-  {
     field: 'trigger_name',
     name: 'Trigger name',
     sortable: true,
     truncateText: true,
     textOnly: true,
   },
+  // ⬇️ Removed the old "Trigger start time" column
+
+  // ⬇️ Renamed & repointed column to lastTriggeredTime (computed in dashboards)
   {
-    field: 'start_time',
-    name: 'Trigger start time',
-    sortable: true,
-    truncateText: false,
-    render: renderTime,
-    dataType: 'date',
-  },
-  {
-    field: 'last_notification_time',
-    name: 'Trigger last updated',
+    field: 'lastTriggeredTime',
+    name: 'Last Triggered Time',
     sortable: true,
     truncateText: true,
-    render: renderTime,
+    render: (ts, row) => {
+      // Fallback: compute from row.alerts if the field wasn't pre-populated
+      let value = ts;
+      if (value == null && Array.isArray(row?.alerts) && row.alerts.length) {
+        const newest = _.maxBy(row.alerts, (a) => (a?.triggered_time ?? a?.start_time) || 0);
+        value = newest?.triggered_time ?? newest?.start_time ?? null;
+      }
+      return renderUtcTime(value);
+    },
     dataType: 'date',
+    'data-test-subj': 'last-triggered-time',
   },
   {
     field: 'severity',

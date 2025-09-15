@@ -1,7 +1,7 @@
 {
   "id": "alertingDashboards",
   "version": "3.1.0.0",
-  "opensearchDashboardsVersion": "3.1.0",
+  "opensearchDashboardsVersion": "opensearchDashboards",
   "configPath": [
     "opensearch_alerting"
   ],
@@ -21,7 +21,8 @@
     "data",
     "visAugmenter",
     "opensearchDashboardsUtils",
-    "contentManagement"
+    "contentManagement", 
+    "explore"
   ],
   "server": true,
   "ui": true,

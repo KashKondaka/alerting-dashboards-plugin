@@ -26,10 +26,7 @@ const severityOptions = [
 const stateOptions = [
   { value: 'ALL', text: 'All alerts' },
   { value: ALERT_STATE.ACTIVE, text: 'Active' },
-  { value: ALERT_STATE.ACKNOWLEDGED, text: 'Acknowledged' },
-  { value: ALERT_STATE.COMPLETED, text: 'Completed' },
   { value: ALERT_STATE.ERROR, text: 'Error' },
-  { value: ALERT_STATE.DELETED, text: 'Deleted' },
 ];
 
 const DashboardControls = ({

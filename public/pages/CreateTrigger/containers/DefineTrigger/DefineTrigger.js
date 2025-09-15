@@ -15,8 +15,14 @@ import {
   EuiTitle,
   EuiFlexGroup,
   EuiFlexItem,
+  EuiSelect,
+  EuiFieldText,
+  EuiCheckbox,
+  EuiFormRow,
 } from '@elastic/eui';
+import { Field, FieldArray } from 'formik';
 import 'brace/mode/plain_text';
+
 import { FormikFieldText, FormikSelect } from '../../../../components/FormControls';
 import { isInvalid, hasError } from '../../../../utils/validate';
 import TriggerQuery from '../../components/TriggerQuery';
@@ -25,7 +31,6 @@ import { validateTriggerName } from './utils/validation';
 import { OS_NOTIFICATION_PLUGIN, SEARCH_TYPE, SEVERITY_OPTIONS } from '../../../../utils/constants';
 import { AnomalyDetectorTrigger } from './AnomalyDetectorTrigger';
 import { TRIGGER_TYPE } from '../CreateTrigger/utils/constants';
-import { FieldArray } from 'formik';
 import ConfigureActions from '../ConfigureActions';
 import monitorToFormik from '../../../CreateMonitor/containers/CreateMonitor/utils/monitorToFormik';
 import { buildRequest } from '../../../CreateMonitor/containers/DefineMonitor/utils/searchRequests';
@@ -35,43 +40,195 @@ import {
   canExecuteClusterMetricsMonitor,
 } from '../../../CreateMonitor/components/ClusterMetricsMonitor/utils/clusterMetricsMonitorHelpers';
 import { DEFAULT_TRIGGER_NAME } from '../../utils/constants';
-import MinimalAccordion from '../../../../components/FeatureAnywhereContextMenu/MinimalAccordion';
 import { getTriggerContext } from '../../utils/helper';
 import { getDataSourceQueryObj } from '../../../utils/helpers';
 
+/** ---------------------------------------------
+ * PPL histogram helpers (last 24h)
+ * --------------------------------------------- */
+
+// Candidate timestamp fields we try to use when building the histogram
+const TS_CANDIDATES = [
+  '@timestamp',
+  'timestamp',
+  'time',
+  'event_time',
+  'ingest_time',
+  'joined', // covers your example
+  'date',
+];
+
+const SYNTH_TS = '__ppl_ts';
+
+const pickTimestampFieldFromQuery = (queryText) => {
+  const q = String(queryText || '');
+  for (const name of TS_CANDIDATES) {
+    // loose-ish word boundary match to avoid false positives inside other tokens
+    const re = new RegExp(`(^|[^\\w])${_.escapeRegExp(name)}([^\\w]|$)`, 'i');
+    if (re.test(q)) return name;
+  }
+  return null;
+};
+
+// Return true if the query already contains a stats/span aggregation
+const queryLooksAggregated = (queryText) => {
+  const q = String(queryText || '').toLowerCase();
+  return q.includes(' stats ') || q.includes('stats ') || q.includes(' span(');
+};
+
+// Build a histogram query for last 24h (hourly)
+const buildHistogramPpl = (baseQuery, tsField) => {
+  // Prefer explicit tsField, then try to pick from the query; otherwise synthesize one.
+  let ts = tsField || pickTimestampFieldFromQuery(baseQuery);
+  let prefix = '';
+  if (!ts) {
+    ts = SYNTH_TS;
+    prefix = ` | eval ${SYNTH_TS} = NOW()`;
+  }
+
+  // If user query already aggregates, just bound the time window.
+  if (queryLooksAggregated(baseQuery)) { // your existing helper
+    return `${baseQuery}${prefix} | where ${ts} BETWEEN DATE_SUB(NOW(), INTERVAL 1 HOUR) AND NOW()`;
+  }
+
+  // Otherwise add both the time window and an hourly span aggregation
+  return (
+    `${baseQuery}${prefix} ` +
+    `| where ${ts} BETWEEN DATE_SUB(NOW(), INTERVAL 1 HOUR) AND NOW() ` +
+    `| stats count() as total by span(${ts}, 5m)`
+  );
+};
+
+
+// Parse PPL histogram response into { buckets: [{key, doc_count}], total }
+const parsePplHistogram = (pplResp) => {
+  const schema = Array.isArray(pplResp?.schema) ? pplResp.schema : [];
+  const rows = Array.isArray(pplResp?.datarows) ? pplResp.datarows : [];
+
+  // Find a time bucket column and a count column
+  const names = schema.map((c) => (c?.name || '').toLowerCase());
+  // Span column is often literally "span", sometimes "bucket" or similar
+  let spanIdx = names.findIndex((n) => n === 'span' || n.startsWith('span(') || /bucket|window/.test(n));
+  if (spanIdx < 0) {
+    // fallback: any timestamp-looking column
+    spanIdx = schema.findIndex((c) => (c?.type || '').toLowerCase().includes('timestamp'));
+    if (spanIdx < 0) spanIdx = names.findIndex((n) => TS_CANDIDATES.includes(n));
+  }
+
+  // Count is commonly "count" or "count()"
+  let countIdx = names.findIndex((n) => n === 'count' || n === 'count()');
+  if (countIdx < 0) {
+    countIdx = names.findIndex((n) => /(^doc_count$|^total$|value$)/.test(n));
+  }
+
+  let buckets = [];
+  if (rows.length && spanIdx >= 0 && countIdx >= 0) {
+    buckets = rows
+      .map((r) => {
+        const rawTs = r[spanIdx];
+        const epochMs =
+          typeof rawTs === 'string' ? Date.parse(rawTs) : Number(rawTs);
+        return {
+          key: Number.isFinite(epochMs) ? epochMs : Date.now(),
+          doc_count: Number(r[countIdx]) || 0,
+        };
+      })
+      .filter((b) => Number.isFinite(b.key))
+      // ensure chronological order client-side
+      .sort((a, b) => a.key - b.key);
+  }
+
+  // Compute total: either explicit "total" or sum of buckets
+  const total =
+    Number(pplResp?.total) ||
+    buckets.reduce((acc, b) => acc + (Number.isFinite(b.doc_count) ? b.doc_count : 0), 0) ||
+    0;
+
+  return { buckets, total };
+};
+
+// If we couldn't get buckets, synthesize a flat 24h series (so the graph never shows empty state)
+const synthesizeFlat1h = (points = 12, value = 0) => {
+  const now = Date.now();
+  const step = (60 * 60 * 1000) / points; // 5 minutes when points=12
+  return Array.from({ length: points }, (_, i) => ({
+    key: now - (points - i) * step,
+    doc_count: Number(value) || 0,
+  }));
+};
+
+
+// Convert parsed buckets into the VisualGraph-friendly response
+const toGraphResponse = ({ buckets, total }) => ({
+  hits: { total: { value: Math.max(1, Number(total) || 0), relation: 'eq' } },
+  aggregations: {
+    // support multiple common names so downstreams are happy
+    ppl_histogram: { buckets },
+    count_over_time: { buckets },
+    date_histogram: { buckets },
+    combined_value: { buckets },
+  },
+});
+
+/** --------------------------------------------- */
+
+// One source of truth for width & padding so all rows match the name field
+const GRID_MAX = 720;
+const GRID_PAD = 10;
+const twoColRowStyle = { paddingLeft: GRID_PAD, maxWidth: GRID_MAX };
+const twoColRowProps = { gutterSize: 'm', responsive: false, alignItems: 'flexEnd', style: twoColRowStyle };
+const HALF_COL = { flexBasis: '50%', minWidth: 0 };
+const TIME_GUTTER_PX = 8;
+const SUPPRESS_TEXT_MAX = 300 * 2 + TIME_GUTTER_PX;
+
 const defaultRowProps = {
   label: 'Trigger name',
-  // helpText: `Trigger names must be unique. Names can only contain letters, numbers, and special characters.`,
   style: { paddingLeft: '10px' },
   isInvalid,
   error: hasError,
 };
 
-const defaultInputProps = { isInvalid };
+const THRESHOLD_OPTIONS = [
+  { value: 'GREATER_THAN', text: 'Greater than' },
+  { value: 'GREATER_THAN_EQUAL', text: 'Greater than equal to' },
+  { value: 'LESS_THAN', text: 'Less than' },
+  { value: 'LESS_THAN_EQUAL', text: 'Less than equal to' },
+  { value: 'EQUAL', text: 'Equal' },
+  { value: 'NOT_EQUALS', text: 'Not equal to' },
+];
 
-const selectFieldProps = {
-  validate: () => {},
-};
+const defaultInputProps = { isInvalid };
+const selectFieldProps = { validate: () => {} };
 
 const selectRowProps = {
   label: 'Severity level',
-  // helpText: `Severity levels help you organize your triggers and actions. A trigger with a high severity level might page a specific individual, whereas a trigger with a low severity level might email a list.`,
   style: { paddingLeft: '10px', marginTop: '0px' },
   isInvalid,
   error: hasError,
 };
+
+const TYPE_OPTIONS = [
+  { value: 'number_of_results', text: 'Number of results' },
+  { value: 'custom', text: 'Custom' },
+];
 
 const triggerOptions = [
   { value: TRIGGER_TYPE.AD, text: 'Anomaly detector grade and confidence' },
   { value: TRIGGER_TYPE.ALERT_TRIGGER, text: 'Extraction query response' },
 ];
 
-const selectInputProps = {
-  options: SEVERITY_OPTIONS,
-};
+const selectInputProps = { options: SEVERITY_OPTIONS };
+
+const DURATION_OPTIONS = [
+  { value: 'seconds', text: 'second(s)' },
+  { value: 'minutes', text: 'minute(s)' },
+  { value: 'hours', text: 'hour(s)' },
+  { value: 'days', text: 'day(s)' },
+];
 
 const propTypes = {
   executeResponse: PropTypes.object,
+  monitor: PropTypes.object,
   monitorValues: PropTypes.object.isRequired,
   onRun: PropTypes.func.isRequired,
   setFlyout: PropTypes.func.isRequired,
@@ -80,11 +237,18 @@ const propTypes = {
   isDarkMode: PropTypes.bool.isRequired,
   flyoutMode: PropTypes.string,
   submitCount: PropTypes.number,
+  // commonly present in callers:
+  edit: PropTypes.bool,
+  triggerArrayHelpers: PropTypes.object,
+  triggerIndex: PropTypes.number,
+  httpClient: PropTypes.object,
+  notifications: PropTypes.object,
+  notificationService: PropTypes.object,
+  plugins: PropTypes.arrayOf(PropTypes.string),
+  errors: PropTypes.object,
 };
 
-const defaultProps = {
-  flyoutMode: null,
-};
+const defaultProps = { flyoutMode: null };
 
 class DefineTrigger extends Component {
   constructor(props) {
@@ -93,66 +257,112 @@ class DefineTrigger extends Component {
       OuterAccordion: props.flyoutMode ? ({ children }) => <>{children}</> : EuiAccordion,
       currentSubmitCount: 0,
       accordionsOpen: {},
+      executeResponse: undefined,   // legacy path
+      graphResponse: undefined,     // NEW: direct histogram for PPL
     };
   }
 
-  // TODO query-level monitor trigger graph only get the input
-  //  when this component mount (new trigger added)
-  //  see how to subscribe the formik related value change
   componentDidMount() {
     const {
       monitorValues: { searchType, uri },
     } = this.props;
+
+    // Always kick off an initial preview so the graph draws
     switch (searchType) {
       case SEARCH_TYPE.CLUSTER_METRICS:
-        if (canExecuteClusterMetricsMonitor(uri)) this.onRunExecute();
+        if (canExecuteClusterMetricsMonitor(uri)) this.onRunExecute(this.props.monitorValues);
         break;
       default:
-        this.onRunExecute();
+        this.onRunExecute(this.props.monitorValues);
     }
   }
 
-  onRunExecute = (triggers = []) => {
+  onRunExecute = (formikValuesArg, triggers = []) => {
     const { httpClient, monitor, notifications } = this.props;
-    const formikValues = monitorToFormik(monitor);
+    const formikValues =
+      formikValuesArg || this.props.monitorValues || monitorToFormik(monitor);
     const searchType = formikValues.searchType;
+
+    const isPPL =
+      monitor?.query_language === 'ppl' ||
+      formikValues?.monitor_mode === 'ppl' ||
+      !!monitor?.ppl_monitor ||
+      !!formikValues?.pplQuery;
+
+    // --- PPL PREVIEW (V2): POST /_plugins/_ppl with a histogram query ---
+    if (isPPL) {
+      const basePpl =
+        formikValues?.pplQuery ||
+        monitor?.ppl_monitor?.query ||
+        monitor?.query ||
+        '';
+
+      const tsField = pickTimestampFieldFromQuery(basePpl);
+      const histogramQuery = buildHistogramPpl(basePpl, tsField);
+
+      const dataSourceQuery = getDataSourceQueryObj();
+      httpClient
+        .post('../_plugins/_ppl', {
+          body: JSON.stringify({ query: histogramQuery }),
+          query: dataSourceQuery?.query,
+        })
+        .then((resp) => {
+          if (resp.ok) {
+            const { buckets, total } = parsePplHistogram(resp.resp);
+
+            const finalBuckets = buckets.length > 1 ? buckets : synthesizeFlat1h(12, total);
+            const graphResponse = toGraphResponse({ buckets: finalBuckets, total });
+
+            // Store the graph response directly; no execute-style wrapper
+            this.setState({ graphResponse });
+          } else {
+            backendErrorNotification(notifications, 'preview', 'query', resp.resp);
+            // Keep a flat series so the graph renders even on error
+            const graphResponse = toGraphResponse({ buckets: synthesizeFlat1h(0), total: 0 });
+            this.setState({ graphResponse });
+          }
+        })
+        .catch(() => {
+          const graphResponse = toGraphResponse({ buckets: synthesizeFlat1h(0), total: 0 });
+          this.setState({ graphResponse });
+        });
+
+      return;
+    }
+
+    // --- Non-PPL path (legacy/other monitor types) ---
     const monitorToExecute = _.cloneDeep(monitor);
     _.set(monitorToExecute, 'triggers', triggers);
 
     switch (searchType) {
       case SEARCH_TYPE.QUERY:
-      case SEARCH_TYPE.GRAPH:
+      case SEARCH_TYPE.GRAPH: {
         const searchRequest = buildRequest(formikValues);
         _.set(monitorToExecute, 'inputs[0]', searchRequest);
         break;
+      }
       case SEARCH_TYPE.AD:
         break;
-      case SEARCH_TYPE.CLUSTER_METRICS:
+      case SEARCH_TYPE.CLUSTER_METRICS: {
         const clusterMetricsRequest = buildClusterMetricsRequest(formikValues);
         _.set(monitorToExecute, 'inputs[0].uri', clusterMetricsRequest);
         break;
+      }
       default:
-        console.log(`Unsupported searchType found: ${JSON.stringify(searchType)}`, searchType);
+        break;
     }
 
     const dataSourceQuery = getDataSourceQueryObj();
-    httpClient
+    this.props.httpClient
       .post('../api/alerting/monitors/_execute', {
         body: JSON.stringify(monitorToExecute),
         query: dataSourceQuery?.query,
       })
       .then((resp) => {
-        if (resp.ok) {
-          this.setState({ executeResponse: resp.resp });
-        } else {
-          // TODO: need a notification system to show errors or banners at top
-          console.error('err:', resp);
-          backendErrorNotification(notifications, 'run', 'trigger', resp.resp);
-        }
+        if (resp.ok) this.setState({ executeResponse: resp.resp });
+        else backendErrorNotification(this.props.notifications, 'run', 'trigger', resp.resp);
       })
-      .catch((err) => {
-        console.log('err:', err);
-      });
+      .catch(() => {});
   };
 
   onAccordionToggle = (key) => {
@@ -161,8 +371,46 @@ class DefineTrigger extends Component {
     this.setState({ accordionsOpen, currentSubmitCount: this.props.submitCount });
   };
 
+  // REPLACEMENT UI for Trigger condition when Type = Custom
+  renderCustomCondition = ({ fieldPath, onUpdate }) => (
+    <div style={{ paddingLeft: GRID_PAD, maxWidth: GRID_MAX }}>
+      <EuiFormRow label="Trigger condition" fullWidth>
+        <>
+          <EuiText size="xs" color="subdued" style={{ marginBottom: 8 }}>
+            Add a custom condition to append to your existing query.
+          </EuiText>
+
+          <EuiFlexGroup gutterSize="s" alignItems="center" responsive={false}>
+            <EuiFlexItem>
+              <Field name={`${fieldPath}customCondition`}>
+                {({ field }) => (
+                  <EuiFieldText
+                    {...field}
+                    value={field.value != null ? field.value : ''}
+                    fullWidth
+                    placeholder="eg: (eval result = count > 3)"
+                    data-test-subj="customConditionInput"
+                  />
+                )}
+              </Field>
+            </EuiFlexItem>
+            <EuiFlexItem grow={false}>
+              <EuiButton size="s" onClick={onUpdate} data-test-subj="updateResults">
+                Update results
+              </EuiButton>
+            </EuiFlexItem>
+          </EuiFlexGroup>
+        </>
+      </EuiFormRow>
+
+      <EuiText color="subdued" size="xs" style={{ marginTop: 4 }}>
+        condition should be limited to supported functions.
+      </EuiText>
+    </div>
+  );
+
   render() {
-    const { OuterAccordion, accordionsOpen, currentSubmitCount } = this.state;
+    const { OuterAccordion, accordionsOpen, currentSubmitCount, executeResponse, graphResponse } = this.state;
     const {
       edit,
       triggerArrayHelpers,
@@ -182,64 +430,65 @@ class DefineTrigger extends Component {
       submitCount,
       errors,
     } = this.props;
-    const hasNotificationPlugin = plugins.indexOf(OS_NOTIFICATION_PLUGIN) !== -1;
-    const executeResponse = _.get(this.state, 'executeResponse', this.props.executeResponse);
-    const context = getTriggerContext(executeResponse, monitor, triggerValues, triggerIndex);
+
+    const { pluginsLoading } = this.props;
+    const hasNotificationPlugin = !pluginsLoading && plugins?.indexOf(OS_NOTIFICATION_PLUGIN) !== -1;
+
+    // Legacy context still uses executeResponse; PPL path uses graphResponse directly
+    const ctxExec = executeResponse ?? this.props.executeResponse;
+    const context = getTriggerContext(ctxExec, monitor, triggerValues, triggerIndex);
+
     const fieldPath = triggerIndex !== undefined ? `triggerDefinitions[${triggerIndex}].` : '';
-    const isGraph = _.get(monitorValues, 'searchType') === SEARCH_TYPE.GRAPH;
+    const isGraphLegacy = _.get(monitorValues, 'searchType') === SEARCH_TYPE.GRAPH;
     const isAd = _.get(monitorValues, 'searchType') === SEARCH_TYPE.AD;
+
     const detectorId = _.get(monitorValues, 'detectorId');
-    const response = _.get(executeResponse, 'input_results.results[0]');
-    const error = _.get(executeResponse, 'error') || _.get(executeResponse, 'input_results.error');
+    // Prefer direct PPL histogram; otherwise legacy execute shape
+    const response = graphResponse || _.get(ctxExec, 'input_results.results[0]');
+    const error = _.get(ctxExec, 'error') || _.get(ctxExec, 'input_results.error');
+
     const thresholdEnum = _.get(triggerValues, `${fieldPath}thresholdEnum`);
     const thresholdValue = _.get(triggerValues, `${fieldPath}thresholdValue`);
     const adTriggerType = _.get(triggerValues, `${fieldPath}anomalyDetector.triggerType`);
     const triggerName = _.get(triggerValues, `${fieldPath}name`, DEFAULT_TRIGGER_NAME);
 
     if (flyoutMode && submitCount > currentSubmitCount) {
-      accordionsOpen.triggerCondition =
-        accordionsOpen?.metrics ||
-        (errors.triggerDefinitions?.[triggerIndex] &&
-          'name' in errors.triggerDefinitions?.[triggerIndex]);
+      this.setState({
+        accordionsOpen: {
+          ...accordionsOpen,
+          triggerCondition:
+            accordionsOpen?.metrics ||
+            (errors.triggerDefinitions?.[triggerIndex] &&
+              'name' in errors.triggerDefinitions?.[triggerIndex]),
+        },
+        currentSubmitCount: submitCount,
+      });
     }
 
-    let triggerContent = (
-      <TriggerQuery
-        context={context}
-        error={error}
-        executeResponse={executeResponse}
-        onRun={_.isEmpty(fieldPath) ? onRun : this.onRunExecute}
-        response={response}
-        setFlyout={setFlyout}
-        triggerValues={triggerValues}
-        isDarkMode={isDarkMode}
-        fieldPath={fieldPath}
-        isAd={isAd}
-      />
-    );
-    if (isAd && adTriggerType === TRIGGER_TYPE.AD) {
-      const adValues = _.get(triggerValues, `${fieldPath}anomalyDetector`);
-      triggerContent = (
-        <AnomalyDetectorTrigger
-          detectorId={detectorId}
-          adValues={adValues}
-          fieldPath={fieldPath}
-          flyoutMode={flyoutMode}
-        />
-      );
-    }
-    if (isGraph) {
-      triggerContent = (
-        <TriggerGraph
-          monitorValues={monitorValues}
-          response={response}
-          thresholdEnum={thresholdEnum}
-          thresholdValue={thresholdValue}
-          fieldPath={fieldPath}
-          flyoutMode={flyoutMode}
-        />
-      );
-    }
+    // figure out current type
+    const selectedType =
+      _.get(triggerValues, `${fieldPath}uiConditionType`) ||
+      _.get(triggerValues, `${fieldPath}type`) ||
+      _.get(triggerValues, `${fieldPath}conditionType`) ||
+      _.get(triggerValues, `${fieldPath}condition?.type`) ||
+      'number_of_results';
+
+    const isNumberOfResults = selectedType === 'number_of_results';
+
+    const isPpl =
+      monitor?.query_language === 'ppl' || monitorValues?.monitor_mode === 'ppl';
+
+    // Show graph if:
+    //  - native Graph monitor, OR
+    //  - PPL + "number_of_results" type, OR
+    //  - the normalized PPL buckets are present on the response
+    const hasPplBuckets =
+      _.get(response, 'aggregations.ppl_histogram.buckets.length', 0) > 0 ||
+      _.get(response, 'aggregations.count_over_time.buckets.length', 0) > 0 ||
+      _.get(response, 'aggregations.date_histogram.buckets.length', 0) > 0;
+    const isGraph = isGraphLegacy || (isPpl && selectedType === 'number_of_results') || hasPplBuckets;
+
+    // Name
     const nameField = (
       <FormikFieldText
         name={`${fieldPath}name`}
@@ -248,19 +497,162 @@ class DefineTrigger extends Component {
             validateTriggerName(triggerValues?.triggerDefinitions, triggerIndex, flyoutMode)(val),
         }}
         formRow
-        rowProps={{ ...defaultRowProps, ...(flyoutMode ? { style: {} } : {}) }}
-        inputProps={defaultInputProps}
+        rowProps={{ ...defaultRowProps, ...(flyoutMode ? { style: {} } : {}), fullWidth: true, style: { paddingLeft: GRID_PAD, maxWidth: GRID_MAX - 8 } }}
+        inputProps={{ ...defaultInputProps, fullWidth: true }}
       />
     );
-    const severityField = (
-      <FormikSelect
-        name={`${fieldPath}severity`}
-        formRow
-        fieldProps={selectFieldProps}
-        rowProps={{ ...selectRowProps, ...(flyoutMode ? { style: {} } : {}) }}
-        inputProps={selectInputProps}
-      />
+
+    const numberOfResultsHeader = isNumberOfResults ? (
+      <>
+        <EuiFlexGroup gutterSize="s" responsive={false} alignItems="flexEnd" style={{ paddingLeft: GRID_PAD, maxWidth: GRID_MAX }}>
+          <EuiFlexItem>
+            <FormikSelect
+              name={`${fieldPath}thresholdEnum`}
+              formRow
+              rowProps={{ label: 'Trigger condition', fullWidth: true, style: { paddingLeft: 0 } }}
+              inputProps={{ options: THRESHOLD_OPTIONS, fullWidth: true }}
+            />
+          </EuiFlexItem>
+          <EuiFlexItem>
+            <FormikFieldText
+              name={`${fieldPath}thresholdValue`}
+              formRow
+              rowProps={{ hasEmptyLabelSpace: true, fullWidth: true, style: { paddingLeft: 0 } }}
+              inputProps={{ type: 'number', fullWidth: true }}
+            />
+          </EuiFlexItem>
+        </EuiFlexGroup>
+
+        <EuiFlexGroup {...twoColRowProps}>
+          <EuiFlexItem grow>{/* radio group lives here if needed */}</EuiFlexItem>
+          <EuiFlexItem grow />
+        </EuiFlexGroup>
+      </>
+    ) : null;
+
+    // Severity + Type
+    const severityAndTypeRow = (
+      <EuiFlexGroup gutterSize="s" responsive={false} alignItems="flexEnd" style={{ paddingLeft: GRID_PAD, maxWidth: GRID_MAX }}>
+        <EuiFlexItem>
+          <FormikSelect
+            name={`${fieldPath}severity`}
+            formRow
+            fieldProps={selectFieldProps}
+            rowProps={{ label: 'Severity level', fullWidth: true, style: { paddingLeft: 0 } }}
+            inputProps={{ options: SEVERITY_OPTIONS, fullWidth: true }}
+          />
+        </EuiFlexItem>
+        <EuiFlexItem>
+          <FormikSelect
+            name={`${fieldPath}uiConditionType`}
+            formRow
+            fieldProps={selectFieldProps}
+            rowProps={{ label: 'Type', fullWidth: true, style: { paddingLeft: 0 } }}
+            inputProps={{ options: TYPE_OPTIONS, fullWidth: true }}
+          />
+        </EuiFlexItem>
+      </EuiFlexGroup>
     );
+
+    // Build the section for the condition UI
+    let triggerConditionSection;
+    if (isAd && adTriggerType === TRIGGER_TYPE.AD) {
+      const adValues = _.get(triggerValues, `${fieldPath}anomalyDetector`);
+      triggerConditionSection = (
+        <AnomalyDetectorTrigger
+          detectorId={detectorId}
+          adValues={adValues}
+          fieldPath={fieldPath}
+          flyoutMode={flyoutMode}
+        />
+      );
+    } else if (isGraph) {
+      const showCustom = selectedType === 'custom';
+
+      const graphEl = (
+        <TriggerGraph
+          monitorValues={monitorValues}
+          response={response}                 // << direct histogram for PPL
+          thresholdEnum={_.get(triggerValues, `${fieldPath}thresholdEnum`)}
+          thresholdValue={_.get(triggerValues, `${fieldPath}thresholdValue`)}
+          fieldPath={fieldPath}
+          flyoutMode={flyoutMode}
+          hideThresholdControls={true}
+          showModeSelector={isNumberOfResults}
+        />
+      );
+
+      triggerConditionSection = (
+        <>
+          {isNumberOfResults && numberOfResultsHeader}
+          {showCustom && (
+            <>
+              {this.renderCustomCondition({
+                fieldPath,
+                onUpdate: _.isEmpty(fieldPath)
+                  ? () => this.onRunExecute(this.props.monitorValues)
+                  : () => this.onRunExecute(this.props.monitorValues),
+              })}
+              <EuiSpacer size="m" />
+            </>
+          )}
+          {graphEl}
+        </>
+      );
+    } else {
+      // Non-graph query monitors: show editor + preview response
+      triggerConditionSection =
+        selectedType === 'custom' ? (
+          this.renderCustomCondition({
+            fieldPath,
+            onUpdate: _.isEmpty(fieldPath)
+              ? () => this.onRunExecute(this.props.monitorValues)
+              : () => this.onRunExecute(this.props.monitorValues),
+          })
+        ) : (
+          <TriggerQuery
+            context={context}
+            error={error}
+            executeResponse={executeResponse}
+            onRun={() => this.onRunExecute(this.props.monitorValues)}
+            response={response}
+            setFlyout={setFlyout}
+            triggerValues={triggerValues}
+            isDarkMode={isDarkMode}
+            fieldPath={fieldPath}
+            isAd={isAd}
+          />
+        );
+    }
+
+    // Throttle / Expires (renamed from Suppress)
+    const suppressEnabled =
+      _.get(triggerValues, `${fieldPath}suppressEnabled`) === true ||
+      _.get(triggerValues, `${fieldPath}suppress?.enabled`) === true;
+
+    const suppressToggle = (
+      <div style={{ paddingLeft: '10px' }}>
+        <Field name={`${fieldPath}suppressEnabled`}>
+          {({ field, form }) => (
+            <EuiCheckbox
+              id={`${fieldPath}__suppressEnabled`}
+              label="Throttle"
+              checked={!!field.value}
+              onChange={(e) => {
+                const checked = e.target.checked;
+                form.setFieldValue(`${fieldPath}suppressEnabled`, checked);
+                form.setFieldValue(`${fieldPath}suppress`, {
+                  ...(_.get(triggerValues, `${fieldPath}suppress`) || {}),
+                  enabled: checked,
+                });
+              }}
+            />
+          )}
+        </Field>
+      </div>
+    );
+
+    const TIME_BOX_WIDTH = 350;
 
     return (
       <OuterAccordion
@@ -272,89 +664,152 @@ class DefineTrigger extends Component {
         }
         initialIsOpen={edit ? false : triggerIndex === 0}
         extraAction={
-          <EuiButton
-            color={'danger'}
-            onClick={() => {
-              triggerArrayHelpers.remove(triggerIndex);
-            }}
-            size={'s'}
-          >
+          <EuiButton color={'danger'} onClick={() => triggerArrayHelpers.remove(triggerIndex)} size={'s'}>
             Remove trigger
           </EuiButton>
         }
         style={{ paddingBottom: '15px', paddingTop: '10px' }}
       >
         <div style={flyoutMode ? {} : { padding: '0px 20px', paddingTop: '20px' }}>
-          {flyoutMode && (
-            <>
-              <EuiTitle size="xs">
-                <h5>Trigger details</h5>
-              </EuiTitle>
-              <EuiSpacer size="m" />
-              <MinimalAccordion
-                {...{
-                  title: 'Trigger condition',
-                  id: 'metric-expression__trigger-condition',
-                  isOpen: accordionsOpen.triggerCondition ?? true,
-                  onToggle: () => this.onAccordionToggle('triggerCondition'),
-                }}
-              >
-                <EuiFlexGroup gutterSize="m">
-                  {/*Change this to <EuiFlexItem grow style={{ maxWidth: 400 }}> since max eui row input is 400px*/}
-                  <EuiFlexItem grow style={{ width: 150 }}>
-                    {nameField}
-                  </EuiFlexItem>
-                  <EuiFlexItem grow={false} style={{ width: 150 }}>
-                    {severityField}
-                  </EuiFlexItem>
-                </EuiFlexGroup>
-                <EuiSpacer size="m" />
-                {triggerContent}
-              </MinimalAccordion>
-            </>
-          )}
           {!flyoutMode && (
             <>
               {nameField}
-              <EuiSpacer size={'m'} />
-              {severityField}
-              <EuiSpacer size={'m'} />
-            </>
-          )}
-
-          {!flyoutMode && isAd ? (
-            <div style={{ paddingLeft: '10px', marginTop: '0px' }}>
-              <EuiText size={'xs'} style={{ paddingBottom: '0px', marginBottom: '0px' }}>
-                <h4>Trigger type</h4>
-              </EuiText>
-              <EuiText color={'subdued'} size={'xs'} style={{ paddingBottom: '5px' }}>
-                Define type of anomaly detector trigger
-              </EuiText>
-              <FormikSelect
-                name={`${fieldPath}anomalyDetector.triggerType`}
-                formRow
-                rowProps={{ style: { paddingTop: '0px', marginTop: '0px', width: '390px' } }}
-                inputProps={{ options: triggerOptions }}
-              />
-              <EuiSpacer size={'m'} />
-            </div>
-          ) : null}
-
-          {!flyoutMode && triggerContent}
-
-          {!flyoutMode && <EuiSpacer size={'l'} />}
-
-          {flyoutMode && (
-            <>
-              <EuiSpacer size="l" />
-              <EuiTitle size="xs">
-                <h5>Notifications</h5>
-              </EuiTitle>
               <EuiSpacer size="m" />
             </>
           )}
+
+          {severityAndTypeRow}
+
+          <EuiSpacer size="m" />
+
+          {/* Trigger condition area */}
+          {triggerConditionSection}
+
+          <EuiSpacer size="l" />
+
+          {/* Throttle (renamed from Suppress) */}
+          {suppressToggle}
+          {suppressEnabled && (
+            <>
+              <div style={{ paddingLeft: GRID_PAD, maxWidth: GRID_MAX }}>
+                <EuiText size="xs" style={{ fontWeight: 'bold', marginBottom: '4px' }}>
+                  <span>Throttle for</span>
+                </EuiText>
+                {(() => {
+                  const throttleVal = Number(_.get(triggerValues, `${fieldPath}suppress.value`, 1));
+                  const throttleUnit = _.get(triggerValues, `${fieldPath}suppress.unit`, 'minutes');
+                  const throttleMinutes = throttleUnit === 'minutes' ? throttleVal : throttleUnit === 'hours' ? throttleVal * 60 : throttleVal * 1440;
+                  const throttleError = throttleMinutes < 1 || throttleMinutes > 7200;
+                  
+                  return (
+                    <div>
+                      <EuiFlexGroup gutterSize="s" alignItems="flexEnd" style={{ marginTop: 0 }}>
+                        <EuiFlexItem>
+                          <FormikFieldText
+                            name={`${fieldPath}suppress.value`}
+                            formRow
+                            rowProps={{ 
+                              fullWidth: true, 
+                              style: { paddingLeft: 0, marginTop: 0 },
+                              isInvalid: throttleError,
+                              error: undefined, // Remove built-in error display
+                              hasEmptyLabelSpace: true
+                            }}
+                            inputProps={{ type: 'number', min: 1, fullWidth: true, isInvalid: throttleError }}
+                          />
+                        </EuiFlexItem>
+                        <EuiFlexItem>
+                          <FormikSelect
+                            name={`${fieldPath}suppress.unit`}
+                            formRow
+                            rowProps={{ hasEmptyLabelSpace: true, fullWidth: true, style: { paddingLeft: 0, marginTop: 0 } }}
+                            inputProps={{ options: [
+                              { value: 'minutes', text: 'minute(s)' },
+                              { value: 'hours', text: 'hour(s)' },
+                              { value: 'days', text: 'day(s)' },
+                            ], fullWidth: true }}
+                          />
+                        </EuiFlexItem>
+                      </EuiFlexGroup>
+                      {/* Reserve space for error message to prevent layout shift */}
+                      <div style={{ height: throttleError ? 'auto' : '20px', minHeight: '20px' }}>
+                        {throttleError && (
+                          <EuiText size="xs" color="danger" style={{ marginTop: '4px' }}>
+                            Must be between 1 minute and 5 days
+                          </EuiText>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })()}
+              </div>
+            </>
+          )}
+
+          {/* Expires */}
+          <EuiSpacer size="s" />
+          <div style={{ paddingLeft: GRID_PAD, maxWidth: GRID_MAX }}>
+            <EuiText size="xs" style={{ fontWeight: 'bold', marginBottom: '4px' }}>
+              <span>Expires</span>
+            </EuiText>
+            {(() => {
+              const expiresVal = Number(_.get(triggerValues, `${fieldPath}expires.value`, 1));
+              const expiresUnit = _.get(triggerValues, `${fieldPath}expires.unit`, 'days');
+              const expiresMinutes = expiresUnit === 'minutes' ? expiresVal : expiresUnit === 'hours' ? expiresVal * 60 : expiresVal * 1440;
+              const expiresError = expiresMinutes < 1 || expiresMinutes > 43200;
+              
+              return (
+                <div>
+                  <EuiFlexGroup gutterSize="s" alignItems="flexEnd" style={{ marginTop: 0 }}>
+                    <EuiFlexItem>
+                      <FormikFieldText
+                        name={`${fieldPath}expires.value`}
+                        formRow
+                        rowProps={{
+                          fullWidth: true,
+                          style: { paddingLeft: 0, marginTop: 0 },
+                          isInvalid: expiresError,
+                          error: undefined, // Remove built-in error display
+                          hasEmptyLabelSpace: true
+                        }}
+                        inputProps={{ type: 'number', min: 1, fullWidth: true, isInvalid: expiresError }}
+                      />
+                    </EuiFlexItem>
+                    <EuiFlexItem>
+                      <FormikSelect
+                        name={`${fieldPath}expires.unit`}
+                        formRow
+                        rowProps={{ hasEmptyLabelSpace: true, fullWidth: true, style: { paddingLeft: 0, marginTop: 0 } }}
+                        inputProps={{ options: [
+                          { value: 'minutes', text: 'minute(s)' },
+                          { value: 'hours', text: 'hour(s)' },
+                          { value: 'days', text: 'day(s)' },
+                        ], fullWidth: true }}
+                      />
+                    </EuiFlexItem>
+                  </EuiFlexGroup>
+                  {/* Reserve space for error message to prevent layout shift */}
+                  <div style={{ height: expiresError ? 'auto' : '20px', minHeight: '20px' }}>
+                    {expiresError && (
+                      <EuiText size="xs" color="danger" style={{ marginTop: '4px' }}>
+                        Must be between 1 minute and 30 days
+                      </EuiText>
+                    )}
+                  </div>
+                </div>
+              );
+            })()}
+          </div>
+
+          {/* Notifications */}
+          <EuiSpacer size="l" />
+          <EuiTitle size="xs">
+            <h5>Notifications</h5>
+          </EuiTitle>
+          <EuiSpacer size="m" />
+
           {((flyoutMode && hasNotificationPlugin) || !flyoutMode) && (
-            <FieldArray name={`${fieldPath}actions`} validateOnChange={true}>
+            <FieldArray name={`${fieldPath}actions`} validateOnChange>
               {(arrayHelpers) => (
                 <ConfigureActions
                   arrayHelpers={arrayHelpers}
@@ -374,16 +829,21 @@ class DefineTrigger extends Component {
               )}
             </FieldArray>
           )}
-          {flyoutMode && !hasNotificationPlugin && (
-            <div>
+
+          {!pluginsLoading && !hasNotificationPlugin && (
+            <>
               <EuiCallOut title="The Notifications plugin is not installed" color="warning">
-                <p>
-                  Alerts still appear on the dashboard visualization when the trigger condition is
-                  met.
-                </p>
+                <p>Alerts still appear on the dashboard visualization when the trigger condition is met.</p>
               </EuiCallOut>
               <EuiSpacer size="m" />
-            </div>
+            </>
+          )}
+          
+          {pluginsLoading && (
+            <>
+              <EuiText size="s" color="subdued">Loading notification channels...</EuiText>
+              <EuiSpacer size="m" />
+            </>
           )}
         </div>
       </OuterAccordion>

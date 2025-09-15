@@ -29,6 +29,17 @@ export function triggerDefinitionsToFormik(triggers, monitor) {
 }
 
 export function triggerDefinitionToFormik(trigger, monitor) {
+  // Check if this is a PPL monitor (v2 monitor) - they have flat trigger structure
+  const isPPLMonitor = trigger && !trigger.query_level_trigger && 
+                       !trigger.bucket_level_trigger && 
+                       !trigger[TRIGGER_TYPE.DOC_LEVEL] &&
+                       !trigger[TRIGGER_TYPE.COMPOSITE_LEVEL] &&
+                       (trigger.mode || trigger.type);
+  
+  if (isPPLMonitor) {
+    return pplTriggerToFormik(trigger, monitor);
+  }
+  
   const monitorType = _.get(monitor, 'monitor_type', MONITOR_TYPE.QUERY_LEVEL);
   switch (monitorType) {
     case MONITOR_TYPE.BUCKET_LEVEL:
@@ -40,6 +51,47 @@ export function triggerDefinitionToFormik(trigger, monitor) {
     default:
       return queryLevelTriggerToFormik(trigger, monitor);
   }
+}
+
+export function pplTriggerToFormik(trigger, monitor) {
+  // PPL triggers have a flat structure, not wrapped in query_level_trigger
+  const {
+    id,
+    name,
+    severity,
+    actions = [],
+    mode,
+    type,
+    num_results_condition,
+    num_results_value,
+    custom_condition,
+    throttle, // in minutes
+    expires, // in minutes
+  } = trigger;
+
+  // Convert throttle (minutes) to Formik format {value, unit}
+  const throttleValue = throttle || 10;
+  const throttleUnit = 'MINUTES';
+
+  // Convert expires (minutes) to Formik format {value, unit}
+  const expiresValue = expires || 10080; // default 7 days
+  const expiresUnit = 'MINUTES';
+
+  return {
+    ..._.cloneDeep(FORMIK_INITIAL_TRIGGER_VALUES),
+    id: id || undefined,
+    name: name || '',
+    severity: severity || 'info',
+    actions: actions || [],
+    // PPL-specific fields
+    pplMode: mode || 'result_set',
+    pplType: type || 'number_of_results',
+    pplNumResultsCondition: num_results_condition || '>=',
+    pplNumResultsValue: num_results_value || 1,
+    pplCustomCondition: custom_condition || null,
+    throttle: { value: throttleValue, unit: throttleUnit },
+    expires: { value: expiresValue, unit: expiresUnit },
+  };
 }
 
 export function queryLevelTriggerToFormik(trigger, monitor) {

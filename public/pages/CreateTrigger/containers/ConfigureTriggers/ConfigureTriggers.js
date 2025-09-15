@@ -35,6 +35,18 @@ import DefineCompositeLevelTrigger from '../DefineCompositeLevelTrigger';
 import EnhancedAccordion from '../../../../components/FeatureAnywhereContextMenu/EnhancedAccordion';
 import { getDataSourceQueryObj } from '../../../../../public/pages/utils/helpers';
 
+/** Normalize PPL preview -> 1h series where the single bar = pplResp.total */
+const build1hSeriesFromTotal = (pplResp, now = Date.now()) => {
+  const HOUR = 60 * 60 * 1000;
+  const total = Number(pplResp?.total ?? pplResp?.datarows?.length ?? 0) || 0;
+  const buckets = [{ key: now - HOUR, doc_count: total }];
+  return {
+    hits: { total: { value: total } },
+    aggregations: { ppl_histogram: { buckets } },
+    ppl_raw: pplResp,
+  };
+};
+
 class ConfigureTriggers extends React.Component {
   constructor(props) {
     super(props);
@@ -124,7 +136,10 @@ class ConfigureTriggers extends React.Component {
         break;
       case MONITOR_TYPE.CLUSTER_METRICS:
         const numOfTriggers = _.get(this.props.triggerValues, 'triggerDefinitions', []).length;
-        if (numOfTriggers > 0 && canExecuteClusterMetricsMonitor(uri)) this.onRunExecute();
+        if (numOfTriggers > 0 && canExecuteClusterMetricsMonitor(uri))
+          this.onRunExecute(this.props.monitorValues);
+        break;
+      default:
         break;
     }
   };
@@ -155,10 +170,55 @@ class ConfigureTriggers extends React.Component {
     );
   };
 
-  onRunExecute = (triggers = []) => {
+  onRunExecute = (formikValuesArg, triggers = []) => {
     const { httpClient, monitor, notifications } = this.props;
-    const formikValues = monitorToFormik(monitor);
+    const formikValues = formikValuesArg || monitorToFormik(monitor);
     const searchType = formikValues.searchType;
+
+    const isPPL =
+      monitor?.query_language === 'ppl' ||
+      formikValues?.monitor_mode === 'ppl' ||
+      !!monitor?.ppl_monitor ||
+      !!formikValues?.pplQuery;
+
+    // PPL PREVIEW (NO alerting execute)
+    if (isPPL) {
+      const pplQuery =
+        formikValues?.pplQuery ||
+        monitor?.ppl_monitor?.query ||
+        monitor?.query ||
+        '';
+
+      const dataSourceQuery = getDataSourceQueryObj();
+      httpClient
+        .post('../_plugins/_ppl', {
+          body: JSON.stringify({ query: pplQuery }),
+          query: dataSourceQuery?.query,
+        })
+        .then((resp) => {
+          if (resp.ok) {
+            const now = Date.now();
+            const normalized = build1hSeriesFromTotal(resp.resp, now);
+            const wrapped = {
+              ok: true,
+              period_start: now - 60 * 60 * 1000, // last 1h
+              period_end: now,
+              input_results: { results: [normalized] },
+              error: null,
+            };
+            this.setState({ executeResponse: wrapped });
+          } else {
+            console.error('err:', resp);
+            backendErrorNotification(notifications, 'preview', 'query', resp.resp);
+          }
+        })
+        .catch((err) => {
+          console.log('err:', err);
+        });
+      return;
+    }
+
+    // Non-PPL fallback
     const monitorToExecute = _.cloneDeep(monitor);
     _.set(monitorToExecute, 'triggers', triggers);
 
@@ -186,7 +246,6 @@ class ConfigureTriggers extends React.Component {
         if (resp.ok) {
           this.setState({ executeResponse: resp.resp });
         } else {
-          // TODO: need a notification system to show errors or banners at top
           console.error('err:', resp);
           backendErrorNotification(notifications, 'run', 'trigger', resp.resp);
         }
@@ -240,6 +299,7 @@ class ConfigureTriggers extends React.Component {
       httpClient,
       notificationService,
       plugins,
+      pluginsLoading,
       flyoutMode,
       submitCount,
       errors,
@@ -252,7 +312,7 @@ class ConfigureTriggers extends React.Component {
         executeResponse={executeResponse}
         monitor={monitor}
         monitorValues={monitorValues}
-        onRun={this.onRunExecute}
+        onRun={(fv) => this.onRunExecute(fv || monitorValues)}
         setFlyout={setFlyout}
         triggers={triggers}
         triggerValues={triggerValues}
@@ -262,6 +322,7 @@ class ConfigureTriggers extends React.Component {
         notifications={notifications}
         notificationService={notificationService}
         plugins={plugins}
+        pluginsLoading={pluginsLoading}
         flyoutMode={flyoutMode}
         submitCount={submitCount}
         errors={errors}
@@ -395,37 +456,44 @@ class ConfigureTriggers extends React.Component {
     }
 
     return hasTriggers
-      ? triggerValues.triggerDefinitions.map((trigger, index) => (
-          <div key={trigger.id}>
-            <TriggerContainer
-              {...{
-                id: `configure-trigger__${trigger.id}`,
-                isOpen: accordionsOpen[index],
-                onToggle: () => this.onAccordionToggle(index),
-                title: (
-                  <EuiFlexGroup alignItems="center" justifyContent="flexStart" gutterSize="s">
-                    <EuiFlexItem grow={false}>{trigger.name}</EuiFlexItem>
-                    <EuiFlexItem grow={false}>
-                      <EuiBadge color="hollow">SEV{trigger.severity}</EuiBadge>
-                    </EuiFlexItem>
-                  </EuiFlexGroup>
-                ),
-                extraAction: (
-                  <EuiSmallButtonIcon
-                    iconType="trash"
-                    color="text"
-                    aria-label={`Delete ${trigger.name}`}
-                    onClick={() => triggerArrayHelpers.remove(index)}
-                  />
-                ),
-              }}
-            >
-              {triggerContent(triggerArrayHelpers, index)}
-            </TriggerContainer>
-            {!flyoutMode && <EuiHorizontalRule margin={'s'} />}
-            {flyoutMode && <EuiSpacer size="m" />}
-          </div>
-        ))
+      ? triggerValues.triggerDefinitions.map((trigger, index) => {
+          const stableKey = trigger?.id || `trigger-${index}`;
+          const containerId = `configure-trigger__${stableKey}`;
+          const sevLabel = trigger?.severity != null ? String(trigger.severity).toUpperCase() : '';
+          return (
+            <div key={stableKey}>
+              <TriggerContainer
+                {...{
+                  id: containerId,
+                  isOpen: accordionsOpen[index],
+                  onToggle: () => this.onAccordionToggle(index),
+                  title: (
+                    <EuiFlexGroup alignItems="center" justifyContent="flexStart" gutterSize="s">
+                      <EuiFlexItem grow={false}>
+                        {trigger?.name || 'New trigger'}
+                      </EuiFlexItem>
+                      <EuiFlexItem grow={false}>
+                        <EuiBadge color="hollow">{sevLabel ? `SEV ${sevLabel}` : 'SEV'}</EuiBadge>
+                      </EuiFlexItem>
+                    </EuiFlexGroup>
+                  ),
+                  extraAction: (
+                    <EuiSmallButtonIcon
+                      iconType="trash"
+                      color="text"
+                      aria-label={`Delete ${trigger?.name || 'trigger'}`}
+                      onClick={() => triggerArrayHelpers.remove(index)}
+                    />
+                  ),
+                }}
+              >
+                {triggerContent(triggerArrayHelpers, index)}
+              </TriggerContainer>
+              {!flyoutMode && <EuiHorizontalRule margin={'s'} />}
+              {flyoutMode && <EuiSpacer size="m" />}
+            </div>
+          );
+        })
       : !flyoutMode && triggerEmptyPrompt;
   };
 

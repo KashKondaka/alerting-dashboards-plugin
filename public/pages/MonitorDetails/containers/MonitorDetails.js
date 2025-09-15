@@ -88,6 +88,28 @@ export default class MonitorDetails extends Component {
     };
   }
 
+  /** Return ppl_monitor from V2 if present, otherwise null */
+  getV2Ppl = (mon) => {
+    if (!mon) return null;
+    return mon?.monitor_v2?.ppl_monitor ?? mon?.ppl_monitor ?? null;
+  };
+
+  getDisplayMonitor = () => {
+    const { monitor } = this.state;
+    const v2 = this.getV2Ppl(monitor);
+    if (!v2) return monitor || {};
+    return {
+      ...monitor,
+      name: v2.name ?? monitor?.name,
+      enabled: typeof v2.enabled === 'boolean' ? v2.enabled : monitor?.enabled,
+      triggers: Array.isArray(v2.triggers) ? v2.triggers : (monitor?.triggers || []),
+      schedule: v2.schedule ?? monitor?.schedule,
+      look_back_window: v2.look_back_window ?? monitor?.look_back_window,
+      query_language: v2.query_language ?? monitor?.query_language,
+      query: v2.query ?? monitor?.query,
+    };
+  };
+
   isWorkflow = () => {
     const { monitor } = this.state;
     if (monitor && monitor.workflow_type) {
@@ -280,7 +302,10 @@ export default class MonitorDetails extends Component {
   };
 
   renderNoTriggersCallOut = () => {
-    const { monitor, editMonitor } = this.state;
+    const { editMonitor } = this.state;
+    const displayMonitor = this.getDisplayMonitor();
+    const hasNoTriggers = !Array.isArray(displayMonitor?.triggers) || displayMonitor.triggers.length === 0;
+
     const callout = (
       <EuiCallOut
         title={
@@ -299,7 +324,7 @@ export default class MonitorDetails extends Component {
       />
     );
 
-    if (!monitor.triggers.length) {
+    if (hasNoTriggers) {
       return (
         <Fragment>
           <PageHeader appBottomControls={[{ renderComponent: callout }]}>
@@ -444,8 +469,9 @@ export default class MonitorDetails extends Component {
       setFlyout,
     } = this.props;
     const { action } = queryString.parse(location.search);
+    const displayMonitor = this.getDisplayMonitor();
     const updatingMonitor = action === MONITOR_ACTIONS.EDIT_MONITOR;
-    const detectorId = _.get(monitor, MONITOR_INPUT_DETECTOR_ID, undefined);
+    const detectorId = _.get(displayMonitor, MONITOR_INPUT_DETECTOR_ID, undefined);
 
     if (loading) {
       return (
@@ -470,10 +496,10 @@ export default class MonitorDetails extends Component {
     }
 
     const displayTableTabs = [MONITOR_TYPE.DOC_LEVEL, MONITOR_TYPE.COMPOSITE_LEVEL].includes(
-      monitor.monitor_type
+      displayMonitor.monitor_type
     );
 
-    const badgeControl = monitor.enabled ? (
+    const badgeControl = displayMonitor.enabled ? (
       <EuiHealth color="success">Enabled</EuiHealth>
     ) : (
       <EuiHealth color="subdued">Disabled</EuiHealth>
@@ -483,9 +509,9 @@ export default class MonitorDetails extends Component {
     const monitorActions = [
       <EuiSmallButton
         isLoading={updating}
-        onClick={() => this.updateMonitor({ enabled: !monitor.enabled })}
+        onClick={() => this.updateMonitor({ enabled: !displayMonitor.enabled })}
       >
-        {monitor.enabled ? 'Disable' : 'Enable'}
+        {displayMonitor.enabled ? 'Disable' : 'Enable'}
       </EuiSmallButton>,
       <EuiSmallButton onClick={this.showJsonModal}>Export as JSON</EuiSmallButton>,
     ];
@@ -532,7 +558,7 @@ export default class MonitorDetails extends Component {
           <EuiFlexGroup alignItems="flexEnd">
             <EuiFlexItem grow={false}>
               <EuiText size="s" style={{ whiteSpace: 'nowrap', overflow: 'hidden' }}>
-                <h1>{monitor.name}</h1>
+                <h1>{displayMonitor.name}</h1>
               </EuiText>
             </EuiFlexItem>
             <EuiFlexItem style={{ paddingBottom: '5px', marginLeft: '0px' }}>
@@ -560,28 +586,30 @@ export default class MonitorDetails extends Component {
         />
         <EuiSpacer />
         <Triggers
-          monitor={monitor}
+          monitor={displayMonitor}
           httpClient={httpClient}
           delegateMonitors={delegateMonitors}
           updateMonitor={this.updateMonitor}
         />
+        {/* TODO: History section commented out - may need to re-add later
         <div className="eui-hideFor--xs eui-hideFor--s eui-hideFor--m">
           <EuiSpacer />
           <MonitorHistory
             httpClient={httpClient}
             monitorId={monitorId}
             onShowTrigger={editMonitor}
-            triggers={getUnwrappedTriggers(monitor)}
+            triggers={getUnwrappedTriggers(displayMonitor)}
             isDarkMode={isDarkMode}
             notifications={notifications}
-            monitorType={monitor.monitor_type}
+            monitorType={displayMonitor.monitor_type}
           />
         </div>
+        */}
         <EuiSpacer />
 
         {displayTableTabs ? (
           <div>
-            {monitor.monitor_type !== MONITOR_TYPE.COMPOSITE_LEVEL ? (
+            {displayMonitor.monitor_type !== MONITOR_TYPE.COMPOSITE_LEVEL ? (
               <EuiTabs size="s">{this.renderTableTabs()}</EuiTabs>
             ) : null}
             {this.state.tabContent}
@@ -594,7 +622,7 @@ export default class MonitorDetails extends Component {
           <EuiOverlayMask>
             <EuiModal onClose={this.closeJsonModal} style={{ padding: '5px 30px' }}>
               <EuiModalHeader>
-                <EuiModalHeaderTitle>{'View JSON of ' + monitor.name} </EuiModalHeaderTitle>
+                <EuiModalHeaderTitle>{'View JSON of ' + (displayMonitor.name || '')} </EuiModalHeaderTitle>
               </EuiModalHeader>
 
               <EuiModalBody>

@@ -76,8 +76,16 @@ export default class Monitors extends Component {
     this.onClickCancel = this.onClickCancel.bind(this);
     this.resetFilters = this.resetFilters.bind(this);
 
+    // Hide columns we don't want to show on the Monitors table
+    const HIDDEN_COLS = new Set([
+      'Active',
+      'Acknowledged',
+      'Errors',
+      'Ignored',
+      'Associations with composite monitors',
+    ]);
     this.columns = [
-      ...staticColumns,
+      ...staticColumns.filter((c) => !HIDDEN_COLS.has(c.name)),
       {
         name: 'Actions',
         width: '60px',
@@ -155,7 +163,71 @@ export default class Monitors extends Component {
       };
       const response = await httpClient.get('../api/alerting/monitors', { query: extendedParams });
       if (response.ok) {
-        const { monitors, totalMonitors } = response;
+        let monitors = [];
+        let totalMonitors = 0;
+
+        if (response.hits && Array.isArray(response.hits.hits)) {
+          const hits = response.hits.hits;
+          const now = Date.now();
+          monitors = hits.map((h) => {
+            const srcMon = h?._source?.monitor || h?._source || {};
+            const ppl = srcMon?.ppl_monitor || {};
+            const name =
+              (typeof ppl.name === 'string' && ppl.name) ||
+              (typeof srcMon.name === 'string' && srcMon.name) ||
+              h._id ||
+              '';
+            const enabled =
+              typeof ppl.enabled === 'boolean'
+                ? ppl.enabled
+                : Boolean(srcMon.enabled);
+            return {
+              id: h._id,
+              name,
+              enabled,
+              monitor: srcMon,
+              ifSeqNo: h._seq_no,
+              ifPrimaryTerm: h._primary_term,
+              item_type:
+                srcMon.workflow_type ||
+                srcMon.monitor_type ||
+                MONITOR_TYPE.QUERY_LEVEL,
+              associatedCompositeMonitorCnt: 0,
+              currentTime: now,
+            };
+          });
+          totalMonitors = Number(response.hits?.total?.value ?? monitors.length) || 0;
+        } else if (Array.isArray(response.monitors)) {
+          const now = Date.now();
+          monitors = response.monitors.map((m) => {
+            const srcMon = m?.monitor || {};
+            const ppl = srcMon?.ppl_monitor || {};
+            const name =
+              (typeof ppl.name === 'string' && ppl.name) ||
+              (typeof m.name === 'string' && m.name) ||
+              m.id;
+            const enabled =
+              typeof ppl.enabled === 'boolean'
+                ? ppl.enabled
+                : Boolean(m.enabled);
+            return {
+              id: m.id,
+              name,
+              enabled,
+              monitor: srcMon,
+              ifSeqNo: m.ifSeqNo,
+              ifPrimaryTerm: m.ifPrimaryTerm,
+              item_type:
+                srcMon.monitor_type ||
+                m.item_type ||
+                MONITOR_TYPE.QUERY_LEVEL,
+              associatedCompositeMonitorCnt: m.associatedCompositeMonitorCnt || 0,
+              currentTime: now,
+            };
+          });
+          totalMonitors = Number(response.totalMonitors ?? monitors.length) || 0;
+        }
+
         this.setState({ monitors, totalMonitors });
       } else {
         if (dataSourceId !== undefined) {
@@ -227,18 +299,18 @@ export default class Monitors extends Component {
 
   async deleteMonitors(items) {
     const { httpClient, notifications } = this.props;
+    
     const arrayOfPromises = items.map((item) =>
       deleteMonitor(item, httpClient, notifications, getDataSourceQueryObj()).catch(
         (error) => error
       )
     );
 
-    return Promise.all(arrayOfPromises).then((values) => {
-      // TODO: Show which values failed, succeeded, etc.
-      const { page, size, search, sortField, sortDirection, monitorState } = this.state;
-      this.getMonitors(page * size, size, search, sortField, sortDirection, monitorState);
-      this.setState({ selectedItems: [] });
-    });
+    await Promise.all(arrayOfPromises);
+    // TODO: Show which values failed, succeeded, etc.
+    const { page, size, search, sortField, sortDirection, monitorState } = this.state;
+    await this.getMonitors(page * size, size, search, sortField, sortDirection, monitorState);
+    this.setState({ selectedItems: [] });
   }
 
   async onClickAcknowledge(item) {
@@ -520,7 +592,9 @@ export default class Monitors extends Component {
             monitors={monitorItemsToDelete}
             httpClient={this.props.httpClient}
             closeDeleteModal={() => this.setState({ monitorItemsToDelete: undefined })}
-            onClickDelete={() => this.deleteMonitors(this.state.monitorItemsToDelete)}
+            onClickDelete={async () => {
+              await this.deleteMonitors(this.state.monitorItemsToDelete);
+            }}
           />
         )}
       </>

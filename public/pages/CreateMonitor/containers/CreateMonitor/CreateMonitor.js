@@ -4,6 +4,7 @@
  */
 
 import React, { Component, Fragment } from 'react';
+import './CreateMonitor.scss';
 import _ from 'lodash';
 import { FieldArray, Formik } from 'formik';
 import {
@@ -13,8 +14,36 @@ import {
   EuiFlexItem,
   EuiSpacer,
   EuiText,
+  EuiPanel,
+  EuiFormRow,
+  EuiTitle,
+  EuiButton,
+  EuiCodeBlock,
+  EuiEmptyPrompt,
+  EuiCodeEditor,
+  EuiButtonEmpty,
+  EuiFieldText,
+  EuiTextArea,
+  EuiSelect,
+  EuiFieldNumber,
+  EuiHorizontalRule,
+  EuiAccordion,
+  EuiTextColor,
+  EuiPopover,
+  EuiContextMenuPanel,
+  EuiContextMenuItem,
+  EuiIconTip,
+  EuiBadge,
+  EuiCheckbox,
+  EuiToolTip,
+  EuiSwitch,
+  EuiFlyout,
+  EuiFlyoutHeader,
+  EuiFlyoutBody
 } from '@elastic/eui';
+
 import DefineMonitor from '../DefineMonitor';
+import CustomSteps from '../../components/CustomSteps';
 import { FORMIK_INITIAL_VALUES } from './utils/constants';
 import { formikToMonitor } from './utils/formikToMonitor';
 import { MONITOR_TYPE, SEARCH_TYPE } from '../../../../utils/constants';
@@ -23,15 +52,37 @@ import MonitorDetails from '../MonitorDetails';
 import ConfigureTriggers from '../../../CreateTrigger/containers/ConfigureTriggers';
 import { triggerToFormik } from '../../../CreateTrigger/containers/CreateTrigger/utils/triggerToFormik';
 import WorkflowDetails from '../WorkflowDetails/WorkflowDetails';
-import { getInitialValues, getPlugins, submit } from './utils/helpers';
+import {
+  getInitialValues,
+  getPlugins,
+  submit,
+  runPPLPreview,
+  submitPPL,
+  extractIndicesFromPPL,
+  findCommonDateFields,
+} from './utils/helpers';
 import {
   getPerformanceModal,
   RECOMMENDED_DURATION,
 } from '../../components/QueryPerformance/QueryPerformance';
 import { isDataSourceChanged } from '../../../utils/helpers';
 import { PageHeader } from '../../../../components/PageHeader/PageHeader';
+import { monaco, loadMonaco } from '@osd/monaco';
+import { CoreContext } from '../../../../utils/CoreContext';
+import { QueryEditor } from '../../../../components/QueryEditor';
+import { AlertingDataTable } from '../../../../components/DataTable';
+import {
+  SavedQueryManagementComponent,
+  SaveQueryFlyout,
+  OpenSavedQueryFlyout,
+} from '../../../../../../../src/plugins/data/public';
+import { setDataSource } from '../../../../services';
 
-export default class CreateMonitor extends Component {
+
+class CreateMonitor extends Component {
+  static contextType = CoreContext;
+  formikRef = React.createRef();
+
   static defaultProps = {
     edit: false,
     monitorToEdit: null,
@@ -44,74 +95,498 @@ export default class CreateMonitor extends Component {
     super(props);
 
     const { location, edit, monitorToEdit } = props;
-    const initialValues = getInitialValues({ location, monitorToEdit, edit });
-    let triggerToEdit;
+    const baseInitial = getInitialValues({ location, monitorToEdit, edit });
+    const initialValues = {
+      ...baseInitial,
+      monitor_mode: 'ppl',
+      useLookBackWindow: baseInitial.useLookBackWindow ?? true,
+      lookBackAmount: baseInitial.lookBackAmount ?? 1,
+      lookBackUnit: baseInitial.lookBackUnit || 'hours',
+      timestampField: baseInitial.timestampField || '@timestamp',
+    };
+    try {
+      const params = new URLSearchParams(location?.search || '');
+      const incoming = params.get('ppl') || params.get('pplQuery');
+      const incomingDataSourceId = params.get('dataSourceId');
+      
+      if (incoming) {
+        initialValues.pplQuery = decodeURIComponent(incoming);
+        // optional: ensure we're in PPL mode
+        initialValues.monitor_mode = 'ppl';
+      }
+      
+      if (incomingDataSourceId) {
+        initialValues.dataSourceId = incomingDataSourceId;
+      }
+      
+      // optional: clean the URL so the value doesn't re-apply on back/forward
+      if ((incoming || incomingDataSourceId) && props.history?.replace) {
+        props.history.replace({ ...location, search: '' });
+      }
+    } catch {
+      // noop — safe fallback if URL parsing fails
+    }
 
+    // Helpers to map v2 trigger fields -> Formik fields used by DefineTrigger
+    const parseDuration = (val) => {
+      // accepts "30m", "7d", "12h", "15min" (we'll be lenient)
+      if (!val || typeof val !== 'string') return { value: '', unit: 'minutes' };
+      const m = val.trim().match(/^(\d+)\s*([a-zA-Z]+)$/);
+      if (!m) return { value: '', unit: 'minutes' };
+      const amount = Number(m[1]);
+      const u = m[2].toLowerCase();
+      let unit = 'minutes';
+      if (u.startsWith('m')) unit = 'minutes';
+      else if (u.startsWith('h')) unit = 'hours';
+      else if (u.startsWith('d')) unit = 'days';
+      else if (u.startsWith('s')) unit = 'seconds'; // tolerated, even if UI hides seconds
+      return { value: Number.isFinite(amount) ? amount : '', unit };
+    };
+
+    const mapComparator = (sym) => {
+      // common names used by threshold UIs
+      switch (sym) {
+        case '>': return 'gt';
+        case '>=': return 'gte';
+        case '<': return 'lt';
+        case '<=': return 'lte';
+        case '==':
+        case '===': return 'eq';
+        case '!=':
+        case '!==': return 'ne';
+        default: return 'gte';
+      }
+    };
+
+    const pplTriggerToFormik = (t) => {
+      const { value: suppressValue, unit: suppressUnit } = parseDuration(t.suppress);
+      const { value: expirationValue, unit: expirationUnit } = parseDuration(t.expires || '7d');
+      const thresholdValue = t.num_results_value != null ? Number(t.num_results_value) : '';
+      const thresholdEnum = mapComparator(t.num_results_condition);
+      return {
+        // raw v2 fields preserved
+        ...t,
+        // fields expected by DefineTrigger/ConfigureTriggers
+        name: t.name,
+        severity: (t.severity || '').toString().toLowerCase(), // keep lower for data; UI uppercases
+        mode: t.mode,
+        type: t.type, // 'number_of_results' | 'custom'
+        thresholdValue,
+        thresholdEnum,     // 'gt' | 'gte' | 'lt' | 'lte' | 'eq' | 'ne'
+        custom_condition: t.custom_condition,
+        suppressEnabled: !!t.suppress,
+        suppress: t.suppress
+          ? { value: suppressValue, unit: suppressUnit, enabled: true }
+          : undefined,
+        expires: t.expires
+          ? { value: expirationValue, unit: expirationUnit }
+          : undefined,
+        queryLevelTrigger: {
+          expires: t.expires ?? '',
+          suppress: t.suppress ?? '',
+          thresholdValue,
+          thresholdEnum,
+          type: t.type,
+          mode: t.mode,
+          custom_condition: t.custom_condition,
+        },
+      };
+    };
+
+    const getExistingPplTriggers = (src) => {
+      const candidates = [
+        src?.ppl_monitor?.triggers,                        // normalized to .ppl_monitor
+        src?.monitor_v2?.ppl_monitor?.triggers,            // raw v2 doc shape
+        src?.monitor?.ppl_monitor?.triggers,               // sometimes wrapped in .monitor
+        src?.monitor?.monitor_v2?.ppl_monitor?.triggers,   // wrapped + v2
+        src?.triggers,                                     // normalized .triggers on the root
+      ];
+      for (const c of candidates) {
+        if (Array.isArray(c)) return c;
+      }
+      return [];
+    };
+
+    let triggerToEdit;
     if (edit && monitorToEdit) {
       triggerToEdit = triggerToFormik(_.get(monitorToEdit, 'triggers', []), monitorToEdit);
     }
 
+    if (edit && monitorToEdit) {
+      const pplTriggers = getExistingPplTriggers(monitorToEdit);
+      if (Array.isArray(pplTriggers) && pplTriggers.length) {
+        initialValues.triggerDefinitions = pplTriggers.map((t) => ({
+          ...pplTriggerToFormik(t),
+          id: t.id,
+          actions: Array.isArray(t.actions) ? t.actions : [],
+        }));
+      }
+    }
+
     this.state = {
       plugins: [],
+      pluginsLoading: true,
       response: null,
       performanceResponse: null,
       initialValues,
       triggerToEdit,
       createModalOpen: false,
       formikBag: undefined,
+      previewLoading: false,
+      previewError: null,
+      previewResult: null,
+      previewQuery: '',
+      showRaw: false,
+      queryLibOpen: false,
+      previewOpen: false,
+      savedQMenuOpen: false,
+      savingInline: false, 
+      showSaveQueryFlyout: false,
+      showOpenQueryFlyout: false,
+      showSavedQueryManager: false,
+      indices: [],
+      availableDateFields: [],
+      dateFieldsLoading: false,
+      dateFieldsError: null,
     };
-
-    this.onCancel = this.onCancel.bind(this);
-    this.onSubmit = this.onSubmit.bind(this);
-    this.evaluateSubmission = this.evaluateSubmission.bind(this);
   }
 
-  componentDidMount() {
-    const { httpClient } = this.props;
+  // Fetch indices once for the current dataSourceId
+  fetchInitialIndices = async () => {
+    const { httpClient, landingDataSourceId } = this.props;
+
+    // Prefer the selected DS in the form if present, else landing
+    const dsId =
+      this.formikRef.current?.values?.dataSourceId || landingDataSourceId;
+
+    // If no dataSourceId, try to fetch indices anyway (for local cluster)
+    if (!dsId) {
+      try {
+        const resp = await httpClient.get('/api/alerting/indices');
+        const indices = resp?.indices || [];
+        this.setState({ indices });
+        return;
+      } catch (e) {
+        console.error('[CreateMonitor] Error fetching indices (local):', e);
+        this.setState({ indices: [] });
+        return;
+      }
+    }
+
+    try {
+      const resp = await httpClient.get('/api/alerting/indices', {
+        query: { dataSourceId: dsId },
+      });
+      const indices = resp?.indices || [];
+      this.setState({ indices });
+    } catch (e) {
+      console.error('[CreateMonitor] Error fetching indices:', e);
+      this.setState({ indices: [] });
+    }
+  };
+
+  // Detect and auto-populate timestamp fields from PPL query
+  detectTimestampFields = async (pplQuery) => {
+    const { httpClient, landingDataSourceId } = this.props;
+    
+    // Extract indices from PPL query
+    const indices = extractIndicesFromPPL(pplQuery);
+    
+    if (indices.length === 0) {
+      this.setState({
+        availableDateFields: [],
+        dateFieldsError: 'No indices found in query',
+        dateFieldsLoading: false,
+      });
+      return;
+    }
+
+    this.setState({ dateFieldsLoading: true, dateFieldsError: null });
+
+    try {
+      const dataSourceId =
+        this.formikRef.current?.values?.dataSourceId || landingDataSourceId;
+      
+      const { commonDateFields, error } = await findCommonDateFields(
+        httpClient,
+        indices,
+        dataSourceId
+      );
+
+      if (error) {
+        this.setState({
+          availableDateFields: [],
+          dateFieldsError: error,
+          dateFieldsLoading: false,
+        });
+        return;
+      }
+
+      if (commonDateFields.length === 0) {
+        this.setState({
+          availableDateFields: [],
+          dateFieldsError: 'No common date fields found across all indices',
+          dateFieldsLoading: false,
+        });
+        return;
+      }
+
+      // Auto-populate with the first field (prioritized to be @timestamp)
+      const defaultField = commonDateFields[0];
+      if (this.formikRef.current) {
+        this.formikRef.current.setFieldValue('timestampField', defaultField, false);
+      }
+
+      this.setState({
+        availableDateFields: commonDateFields,
+        dateFieldsError: null,
+        dateFieldsLoading: false,
+      });
+    } catch (err) {
+      console.error('[detectTimestampFields] Error:', err);
+      this.setState({
+        availableDateFields: [],
+        dateFieldsError: err?.message || 'Failed to detect timestamp fields',
+        dateFieldsLoading: false,
+      });
+    }
+  };
+
+  getSavedQueryService = () => {
+    try {
+      console.log('context unchanged:', this.context);
+
+      const services =
+        (this.context && (this.context.services || this.context)) || undefined;
+      console.log('context.services:', services);
+
+      const data = services?.data;
+      console.log('services.data:', data);
+
+      const query = data?.query;
+      console.log('services.data.query:', query);
+
+      const savedQueries = query?.savedQueries;
+      console.log('services.data.query.savedQueries:', savedQueries);
+
+      return savedQueries;
+    } catch (e) {
+      console.error('getSavedQueryService() error:', e);
+      return undefined;
+    }
+  };
+
+
+  getNotifications = () => {
+    return this.context?.services?.notifications || this.props.notifications;
+  };
+
+  handleSaveQuery = async (meta, saveAsNew = false) => {
+    const svc = this.getSavedQueryService();
+    const toasts = this.getNotifications()?.toasts;
+    if (!svc) {
+      toasts?.addWarning('Saved query service is not available.');
+      return;
+    }
+    const pplQuery = this.formikRef.current?.values?.pplQuery || '';
+    const attributes = {
+      title: meta.title,
+      description: meta.description,
+      query: {
+        query: pplQuery,
+        language: 'ppl',
+      },
+    };
+
+    try {
+      this.setState({ savingInline: true });
+      await svc.saveQuery(attributes, { overwrite: !saveAsNew });
+      toasts?.addSuccess(`Your query "${attributes.title}" was saved`);
+      this.setState({ savingInline: false, showSavedQueryManager: false });
+    } catch (err) {
+      this.setState({ savingInline: false });
+      toasts?.addDanger(
+        (err && err.message) ? `Failed to save query: ${err.message}` : 'Failed to save query.'
+      );
+      throw err;
+    }
+  };
+
+  handleLoadSavedQuery = (savedQuery) => {
+    const q = savedQuery?.attributes?.query?.query;
+    if (typeof q === 'string') {
+      this.formikRef.current?.setFieldValue('pplQuery', q);
+    } else if (q != null) {
+      this.formikRef.current?.setFieldValue('pplQuery', JSON.stringify(q, null, 2));
+    }
+    this.setState({
+      showSavedQueryManager: false,
+      showSaveQueryFlyout: false,
+      showOpenQueryFlyout: false,
+    });
+  };
+
+  handleClearSavedQuery = () => {
+    this.setState({
+      showSavedQueryManager: false,
+      showSaveQueryFlyout: false,
+      showOpenQueryFlyout: false,
+    });
+  };
+
+  async componentDidMount() {
+    const { httpClient, landingDataSourceId } = this.props;
+
+    // Set data source before making any API calls that use getDataSourceQueryObj()
+    // Initialize with empty object if landingDataSourceId is not available yet
+    if (landingDataSourceId) {
+      setDataSource({ dataSourceId: landingDataSourceId });
+    } else {
+      // Initialize with empty/null to prevent "DataSource was not set" error
+      setDataSource({ dataSourceId: undefined });
+    }
 
     const updatePlugins = async () => {
-      const newPlugins = await getPlugins(httpClient);
-      this.setState({ plugins: newPlugins });
+      try {
+        const newPlugins = await getPlugins(httpClient);
+        this.setState({ plugins: newPlugins, pluginsLoading: false });
+      } catch (error) {
+        console.error('[CreateMonitor] Error fetching plugins:', error);
+        // Set pluginsLoading to false even on error so UI doesn't get stuck
+        this.setState({ pluginsLoading: false });
+      }
     };
 
     updatePlugins();
     this.setSchedule();
+    this.fetchInitialIndices();
+
+    // Detect timestamp fields from initial PPL query if present
+    const initialPplQuery = this.formikRef.current?.values?.pplQuery;
+    if (initialPplQuery) {
+      this.detectTimestampFields(initialPplQuery);
+    }
+  }
+
+  componentDidUpdate(prevProps) {
+    if (isDataSourceChanged(prevProps, this.props)) {
+      // Update the data source service
+      if (this.props.landingDataSourceId) {
+        setDataSource({ dataSourceId: this.props.landingDataSourceId });
+      }
+      
+      this.formikRef.current?.setFieldValue(
+        'dataSourceId',
+        this.props.landingDataSourceId,
+        false /* no validate */
+      );
+      
+      // Refetch plugins with new data source
+      const updatePlugins = async () => {
+        this.setState({ pluginsLoading: true });
+        try {
+          const newPlugins = await getPlugins(this.props.httpClient);
+          this.setState({ plugins: newPlugins, pluginsLoading: false });
+        } catch (error) {
+          console.error('[CreateMonitor] Error refetching plugins:', error);
+          this.setState({ pluginsLoading: false });
+        }
+      };
+      updatePlugins();
+    }
+  }
+
+  // componentWillUnmount() {
+  //   this.props.setFlyout(null);
+  // }
+  componentWillUnmount() {
+    try {
+      this.props.setFlyout(null);
+    } catch (e) {}
+    // if (this._onFocusDisposable) {
+    //   try { this._onFocusDisposable.dispose(); } catch (e) {}
+    //   this._onFocusDisposable = null;
+    // }
+    // if (this._pplEditor) {
+    //   try { this._pplEditor.dispose(); } catch (e) {}
+    //   this._pplEditor = null;
+    // }
+    // if (this._monacoCompletionDisposable) {
+    //   try { this._monacoCompletionDisposable.dispose(); } catch (e) {}
+    //   this._monacoCompletionDisposable = null;
+    // }
+    // this._pplEditor = null;
   }
 
   resetResponse() {
     this.setState({ response: null, performanceResponse: null });
   }
 
-  onCancel() {
+  onCancel = () => {
     if (this.props.edit) this.props.history.goBack();
     else this.props.history.push('/monitors');
-  }
+  };
 
   setSchedule = () => {
     const { edit, monitorToEdit } = this.props;
     const { initialValues } = this.state;
 
     if (edit) {
-      const schedule = _.get(monitorToEdit, 'schedule', FORMIK_INITIAL_VALUES.period);
+      const schedule =
+        _.get(monitorToEdit, 'ppl_monitor.schedule') ||
+        _.get(monitorToEdit, 'schedule') ||
+        { period: FORMIK_INITIAL_VALUES.period };
       const scheduleType = _.keys(schedule)[0];
       switch (scheduleType) {
         case 'cron':
           _.set(initialValues, 'frequency', 'cronExpression');
           break;
         default:
-          _.set(initialValues, 'period', schedule.period);
+          _.set(initialValues, 'period', schedule.period || FORMIK_INITIAL_VALUES.period);
           break;
       }
+
+      // hydrate look_back_window if present (integer in minutes)
+      const lbw =
+        monitorToEdit?.look_back_window ||
+        monitorToEdit?.ppl_monitor?.look_back_window ||
+        null;
+      if (lbw) {
+        const minutes = Number(lbw);
+        if (Number.isFinite(minutes) && minutes > 0) {
+          _.set(initialValues, 'useLookBackWindow', true);
+          
+          // Convert minutes to best fitting unit
+          if (minutes >= 1440 && minutes % 1440 === 0) {
+            // Days
+            _.set(initialValues, 'lookBackAmount', minutes / 1440);
+            _.set(initialValues, 'lookBackUnit', 'days');
+          } else if (minutes >= 60 && minutes % 60 === 0) {
+            // Hours
+            _.set(initialValues, 'lookBackAmount', minutes / 60);
+            _.set(initialValues, 'lookBackUnit', 'hours');
+          } else {
+            // Minutes
+            _.set(initialValues, 'lookBackAmount', minutes);
+            _.set(initialValues, 'lookBackUnit', 'minutes');
+          }
+        }
+      }
+
+      // hydrate timestamp_field if present
+      const tsField =
+        monitorToEdit?.timestamp_field ||
+        monitorToEdit?.ppl_monitor?.timestamp_field ||
+        '@timestamp';
+      _.set(initialValues, 'timestampField', tsField);
     }
   };
 
-  evaluateSubmission(values, formikBag) {
+  evaluateSubmission = (values, formikBag) => {
     const { performanceResponse } = this.props;
     const { createModalOpen } = this.state;
     const monitorDurationCallout = _.get(performanceResponse, 'took') >= RECOMMENDED_DURATION;
 
-    // TODO: Need to confirm the purpose of requestDuration.
-    //  There's no explanation for it in the frontend code even back to opendistro implementation.
     const requestDurationCallout =
       _.get(performanceResponse, 'invalid.path') >= RECOMMENDED_DURATION;
     const displayPerfCallOut = monitorDurationCallout || requestDurationCallout;
@@ -124,12 +599,36 @@ export default class CreateMonitor extends Component {
     } else {
       this.onSubmit(values, formikBag);
     }
-  }
+  };
 
-  onSubmit(values, formikBag) {
-    const { edit, history, updateMonitor, notifications, httpClient } = this.props;
+  onSubmit = (values, formikBag) => {
+    const {
+      edit,
+      history,
+      updateMonitor,
+      notifications,
+      httpClient,
+      monitorToEdit,
+      landingDataSourceId,
+    } = this.props;
     const { triggerToEdit } = this.state;
 
+    // ppl
+    if (values.monitor_mode === 'ppl') {
+      submitPPL({
+        values,
+        formikBag,
+        edit,
+        monitorToEdit,
+        history,
+        notifications,
+        httpClient,
+        dataSourceId: values.dataSourceId || landingDataSourceId,
+      });
+      return;
+    }
+
+    // legacy
     submit({
       values,
       formikBag,
@@ -143,26 +642,513 @@ export default class CreateMonitor extends Component {
         notifications.toasts.addSuccess(`Monitor "${monitor.name}" successfully created.`);
       },
     });
-  }
+  };
 
   onCloseTrigger = () => {
     this.props.history.push({ ...this.props.location, search: '' });
   };
 
-  componentWillUnmount() {
-    this.props.setFlyout(null);
-  }
+  buildMonitorForTriggers = (values) => {
+    if (values.monitor_mode === 'ppl') {
+      // Robustly get existing PPL triggers from any supported shape
+      const getExistingPplTriggers = (src) => {
+        const candidates = [
+          src?.ppl_monitor?.triggers,
+          src?.monitor_v2?.ppl_monitor?.triggers,
+          src?.monitor?.ppl_monitor?.triggers,
+          src?.monitor?.monitor_v2?.ppl_monitor?.triggers,
+          src?.triggers,
+        ];
+        for (const c of candidates) {
+          if (Array.isArray(c)) return c;
+        }
+        return [];
+      };
+      const existingTriggers =
+        this.props.edit && this.props.monitorToEdit
+          ? getExistingPplTriggers(this.props.monitorToEdit)
+          : [];
 
-  componentDidUpdate(prevProps) {
-    if (isDataSourceChanged(prevProps, this.props)) {
-      this.setState({
-        initialValues: {
-          ...this.state.initialValues,
-          dataSourceId: this.props.landingDataSourceId,
+      return {
+        name: values.name || '',
+        type: 'monitor',
+        monitor_type: MONITOR_TYPE.QUERY_LEVEL,
+        enabled: true,
+        schedule: { period: { interval: 1, unit: 'MINUTES' } },
+        inputs: [{ search: { indices: [], query: { match_all: {} } } }],
+        ui_metadata: {
+          search: { searchType: 'query' },
+          triggers: {},
         },
-      });
+        // Feed existing PPL triggers to ConfigureTriggers in edit flow
+        triggers: existingTriggers,
+      };
     }
-  }
+
+    const monitor = formikToMonitor(values) || {};
+    if (!Array.isArray(monitor.inputs) || monitor.inputs.length === 0) {
+      monitor.inputs = [{ search: { indices: [], query: { match_all: {} } } }];
+      return monitor;
+    }
+    const first = monitor.inputs[0];
+    if (!first.search) first.search = { indices: [], query: { match_all: {} } };
+    if (!Array.isArray(first.search.indices)) first.search.indices = [];
+    if (!first.search.query) first.search.query = { match_all: {} };
+    return monitor;
+  };
+
+  renderPplDetailsBody = (values, setFieldValue) => (
+    <>
+      <EuiFormRow label="Monitor name" fullWidth style={{ marginLeft: '-6px', maxWidth: '720px' }}>
+        <EuiFieldText
+          data-test-subj="pplName"
+          value={values.name}
+          onChange={(e) => setFieldValue('name', e.target.value)}
+          placeholder="Enter a monitor name"
+          fullWidth
+        />
+      </EuiFormRow>
+
+      <EuiFormRow
+        label={
+          <>
+            <span className="euiFormLabel">Description</span>{' '}
+            <EuiTextColor color="subdued">
+              <span>- optional</span>
+            </EuiTextColor>
+          </>
+        }
+        fullWidth
+        style={{ marginLeft: '-6px', maxWidth: '720px' }}
+      >
+        <EuiTextArea
+          data-test-subj="pplDescription"
+          value={values.description || ''}
+          onChange={(e) => setFieldValue('description', e.target.value)}
+          placeholder="Describe the monitor"
+          fullWidth
+        />
+      </EuiFormRow>
+
+      <EuiFormRow>
+        <EuiCheckbox
+          id="useLegacyMonitorsPplInline"
+          label={
+            <span>
+              Use legacy monitors{' '}
+              <EuiToolTip content="Use pre-existing monitor types available in legacy alerts.">
+                <EuiIconTip type="iInCircle" />
+              </EuiToolTip>
+            </span>
+          }
+          checked={values.monitor_mode === 'legacy'}
+          onChange={(e) => setFieldValue('monitor_mode', e.target.checked ? 'legacy' : 'ppl')}
+          data-test-subj="useLegacyCheckboxPplInline"
+        />
+      </EuiFormRow>
+    </>
+  );
+
+  // ---- PPL Schedule (unchanged) ----
+
+
+  // Debounced timestamp field detection
+  debouncedDetectTimestampFields = _.debounce((pplQuery) => {
+    this.detectTimestampFields(pplQuery);
+  }, 1000);
+
+  renderPplQueryBody = (values, setFieldValue) => (
+    <>
+      {/* Top row with PPL badge, Saved queries, Run preview, and info icon */}
+      <EuiFlexGroup alignItems="center" justifyContent="spaceBetween" gutterSize="s" responsive={false}>
+        <EuiFlexItem grow={false}>
+          <EuiFlexGroup alignItems="center" gutterSize="s" responsive={false}>
+            <EuiFlexItem grow={false}>
+              <EuiFlexGroup alignItems="center" gutterSize="xs" responsive={false}>
+                <EuiFlexItem grow={false}>
+                  <EuiText>
+                    PPL
+                  </EuiText>
+                </EuiFlexItem>
+                <EuiFlexItem grow={false}>
+                  <EuiIconTip
+                    type="iInCircle"
+                    content="Write queries in PPL. Use Saved queries for saved or example queries."
+                    position="left"
+                    iconProps={{ style: { border: 'none', background: 'none' } }}
+                  />
+                </EuiFlexItem>
+              </EuiFlexGroup>
+            </EuiFlexItem>
+            
+            <EuiFlexItem grow={false}>
+              <div style={{ width: '1px', height: '16px', backgroundColor: '#d3dae6', margin: '0 8px' }} />
+            </EuiFlexItem>
+            
+            <EuiFlexItem grow={false}>
+              <EuiPopover
+                isOpen={this.state.savedQMenuOpen}
+                closePopover={() =>
+                  this.setState({
+                    savedQMenuOpen: false,
+                    showSavedQueryManager: false,
+                    showSaveQueryFlyout: false,
+                    showOpenQueryFlyout: false,
+                  })
+                }
+                anchorPosition="downLeft"
+                panelPaddingSize="none"
+                button={
+                  <EuiButtonEmpty
+                    size="s"
+                    iconType={this.state.savedQMenuOpen ? 'arrowUp' : 'arrowDown'}
+                    iconSide="right"                    
+                    onClick={() =>
+                      this.setState((s) => ({
+                        savedQMenuOpen: !s.savedQMenuOpen,
+                        showSavedQueryManager: !s.savedQMenuOpen ? true : s.showSavedQueryManager,
+                        showSaveQueryFlyout: false,
+                        showOpenQueryFlyout: false,
+                      }))
+                    }
+                    data-test-subj="savedQueriesButton"
+                  >
+                    Saved queries
+                  </EuiButtonEmpty>
+                }
+              >
+                {this.state.showSavedQueryManager && (
+                  <div
+                    style={{
+                      width: 200,
+                      maxWidth: '60vw',
+                      padding: 8,
+                      maxHeight: 200,
+                      overflow: 'auto',
+                    }}
+                    className="eui-yScroll"
+                  >
+                    <SavedQueryManagementComponent
+                      savedQueryService={this.getSavedQueryService()}
+                      onLoad={this.handleLoadSavedQuery}
+                      onClearSavedQuery={this.handleClearSavedQuery}
+                      showSaveQuery={
+                        typeof this.state.showSaveQueryFlyout === 'boolean'
+                          ? this.state.showSaveQueryFlyout
+                          : undefined
+                      }
+                      saveQuery={this.handleSaveQuery}
+                      useNewSavedQueryUI={true}
+                      closeMenuPopover={() =>
+                        this.setState({
+                          savedQMenuOpen: false,
+                          showSavedQueryManager: false,
+                          showSaveQueryFlyout: false,
+                          showOpenQueryFlyout: false,
+                        })
+                      }
+                    />
+                  </div>
+                )}
+              </EuiPopover>
+            </EuiFlexItem>
+          </EuiFlexGroup>
+        </EuiFlexItem>
+
+        <EuiFlexItem grow={false}>
+          <EuiButton
+            size="s"
+            onClick={async () => {
+              const { httpClient, landingDataSourceId } = this.props;
+              this.setState({
+                previewLoading: true,
+                previewError: null,
+                previewResult: null,
+                previewQuery: '',
+                previewOpen: true,       
+              });
+              try {
+                const data = await runPPLPreview(httpClient, {
+                  queryText: values.pplQuery || '',
+                  dataSourceId: values.dataSourceId || landingDataSourceId,
+                });
+                this.setState({
+                  previewResult: data,
+                  previewQuery: values.pplQuery || '',
+                  previewLoading: false,
+                  previewOpen: true,
+                });
+              } catch (e) {
+                this.setState({
+                  previewError: e?.body?.message || e?.message || 'Preview failed',
+                  previewLoading: false,
+                  previewOpen: true,
+                });
+              }
+            }}
+            isLoading={this.state.previewLoading}
+            data-test-subj="runPreview"
+          >
+            Run preview
+          </EuiButton>
+        </EuiFlexItem>
+      </EuiFlexGroup>
+
+      <EuiSpacer size="s" />
+      
+      {/* Query editor */}
+      <div data-test-subj="pplEditorMonaco">
+        <QueryEditor
+          value={values.pplQuery || ''}
+          onChange={(text) => {
+            setFieldValue('pplQuery', text);
+            // Trigger debounced timestamp field detection
+            this.debouncedDetectTimestampFields(text);
+          }}
+          services={this.context?.services || this.context}
+          height={220}
+          indices={this.state.indices}
+        />
+      </div>
+
+      <EuiSpacer size="m" />
+
+      <EuiAccordion
+        id="pplPreviewAccordion"
+        buttonContent="Preview results"
+        paddingSize="m"
+        data-test-subj="pplPreviewAccordion"
+        forceState={this.state.previewOpen ? 'open' : 'closed'}
+        onToggle={(isOpen) => this.setState({ previewOpen: isOpen })}
+      >
+        <EuiPanel hasBorder paddingSize="l" data-test-subj="pplResultsPanel">
+          <EuiTitle size="s"><h2>Results</h2></EuiTitle>
+          <EuiHorizontalRule margin="m" />
+          {!this.state.previewResult && !this.state.previewError ? (
+            <EuiEmptyPrompt iconType="editorCodeBlock" title={<h3>Run a query to view results</h3>} layout="vertical" />
+          ) : this.state.previewError ? (
+            <EuiCodeBlock isCopyable>{this.state.previewError}</EuiCodeBlock>
+          ) : (
+            <>
+              <AlertingDataTable
+                pplResponse={this.state.previewResult}
+                isLoading={this.state.previewLoading}
+                services={this.context?.services || this.context}
+              />
+            </>
+          )}
+        </EuiPanel>
+      </EuiAccordion>
+    </>
+  );
+
+  // ---- PPL Schedule ----
+  renderPplScheduleBody(values, setFieldValue) {
+    const useLB = values.useLookBackWindow !== undefined ? values.useLookBackWindow : true;
+    const lbAmount = Number(values.lookBackAmount !== undefined ? values.lookBackAmount : 1);
+    const lbUnit = values.lookBackUnit || 'hours';
+    const { availableDateFields, dateFieldsError, dateFieldsLoading } = this.state;
+
+    // Validation limits (in minutes)
+    const LIMITS = {
+      lookback: { min: 1 }, // minimum 1 minute
+      interval: { min: 1 }, // minimum 1 minute
+    };
+
+    // Calculate total minutes for validation
+    const lbMinutes = lbUnit === 'minutes' ? lbAmount : lbUnit === 'hours' ? lbAmount * 60 : lbAmount * 1440;
+    const lbError = lbAmount !== '' && lbMinutes < LIMITS.lookback.min;
+    
+    // Calculate interval validation
+    const intervalAmount = Number(values.period?.interval ?? 1);
+    const intervalUnit = values.period?.unit || 'MINUTES';
+    const intervalMinutes = intervalUnit === 'MINUTES' ? intervalAmount : intervalUnit === 'HOURS' ? intervalAmount * 60 : intervalAmount * 1440;
+    const intervalError = intervalAmount !== '' && intervalMinutes < LIMITS.interval.min;
+
+    const LookBackControls = (
+      <>
+        <EuiFormRow>
+          <EuiCheckbox
+            id="useLookBackWindow"
+            label={
+              <span>
+                Add look back window{' '}
+                <EuiIconTip
+                  type="iInCircle"
+                  content="Look back window specifies how far back in time the monitor should query data during each execution."
+                />
+              </span>
+            }
+            checked={useLB}
+            onChange={(e) => setFieldValue('useLookBackWindow', e.target.checked)}
+            data-test-subj="pplUseLookBack"
+            disabled={dateFieldsError !== null && availableDateFields.length === 0}
+          />
+        </EuiFormRow>
+
+        {dateFieldsError && availableDateFields.length === 0 && (
+          <>
+            <EuiSpacer size="s" />
+            <EuiText size="xs" color="warning">
+              <EuiIconTip type="alert" color="warning" /> {dateFieldsError}. Look back window requires a common timestamp field across all indices.
+            </EuiText>
+            <EuiSpacer size="s" />
+          </>
+        )}
+
+        {useLB && (
+          <>
+            <EuiFormRow 
+              label="Look back from" 
+              fullWidth 
+              style={{ marginLeft: '-6px', maxWidth: '720px' }}
+              isInvalid={lbError}
+              error={lbError ? `Must be at least 1 minute` : undefined}
+            >
+              <EuiFlexGroup gutterSize="s" alignItems="center" responsive={false}>
+                <EuiFlexItem>
+                  <EuiFieldNumber
+                    data-test-subj="pplLookBackAmount"
+                    value={lbAmount === 0 ? '' : lbAmount}
+                    onChange={(e) => {
+                      const val = e.target.value === '' ? '' : Number(e.target.value);
+                      setFieldValue('lookBackAmount', val);
+                    }}
+                    fullWidth
+                    isInvalid={lbError}
+                  />
+                </EuiFlexItem>
+
+                <EuiFlexItem>
+                  <EuiSelect
+                    data-test-subj="pplLookBackUnit"
+                    options={[
+                      { value: 'minutes', text: 'Minute(s) ago' },
+                      { value: 'hours', text: 'Hour(s) ago' },
+                      { value: 'days', text: 'Day(s) ago' },
+                    ]}
+                    value={lbUnit}
+                    onChange={(e) => setFieldValue('lookBackUnit', e.target.value)}
+                    fullWidth
+                  />
+                </EuiFlexItem>
+              </EuiFlexGroup>
+            </EuiFormRow>
+
+            <EuiFormRow
+              label={
+                <span>
+                  Timestamp field{' '}
+                  <EuiIconTip
+                    type="iInCircle"
+                    content="The date field used to filter data within the look back window."
+                  />
+                </span>
+              }
+              fullWidth
+              style={{ marginLeft: '-6px', maxWidth: '720px' }}
+              helpText={dateFieldsLoading ? 'Detecting timestamp fields...' : undefined}
+            >
+              <EuiSelect
+                data-test-subj="pplTimestampField"
+                options={
+                  availableDateFields.length > 0
+                    ? availableDateFields.map((field) => ({ value: field, text: field }))
+                    : [{ value: values.timestampField || '@timestamp', text: values.timestampField || '@timestamp' }]
+                }
+                value={values.timestampField || '@timestamp'}
+                onChange={(e) => setFieldValue('timestampField', e.target.value)}
+                fullWidth
+                isLoading={dateFieldsLoading}
+              />
+            </EuiFormRow>
+          </>
+        )}
+      </>
+    );
+
+    return (
+      <>
+        <EuiFormRow label="Frequency" fullWidth style={{ marginLeft: '-6px', maxWidth: '720px' }}>
+          <EuiSelect
+            data-test-subj="pplFrequency"
+            options={[
+              { value: 'interval', text: 'By interval' },
+              { value: 'daily', text: 'Daily' },
+              { value: 'weekly', text: 'Weekly' },
+              { value: 'monthly', text: 'Monthly' },
+              { value: 'cronExpression', text: 'Custom cron job' },
+            ]}
+            value={values.frequency}
+            onChange={(e) => setFieldValue('frequency', e.target.value)}
+            fullWidth
+          />
+        </EuiFormRow>
+
+        {values.frequency === 'interval' && (
+          <>
+            <EuiFormRow 
+              label="Run every" 
+              fullWidth 
+              style={{ marginLeft: '-6px', maxWidth: '720px' }}
+              isInvalid={intervalError}
+              error={intervalError ? 'Must be at least 1 minute' : undefined}
+            >
+              <EuiFlexGroup gutterSize="s" alignItems="center" responsive={false}>
+                <EuiFlexItem>
+                  <EuiFieldNumber
+                    data-test-subj="pplIntervalValue"
+                    value={values.period?.interval === 0 ? '' : (values.period?.interval ?? 1)}
+                    onChange={(e) => {
+                      const val = e.target.value === '' ? '' : Number(e.target.value);
+                      setFieldValue('period.interval', val);
+                    }}
+                    fullWidth
+                    isInvalid={intervalError}
+                  />
+                </EuiFlexItem>
+                <EuiFlexItem>
+                  <EuiSelect
+                    data-test-subj="pplIntervalUnit"
+                    options={[
+                      { value: 'MINUTES', text: 'minute(s)' },
+                      { value: 'HOURS', text: 'hour(s)' },
+                      { value: 'DAYS', text: 'day(s)' },
+                    ]}
+                    value={values.period?.unit || 'MINUTES'}
+                    onChange={(e) => setFieldValue('period.unit', e.target.value)}
+                    fullWidth
+                  />
+                </EuiFlexItem>
+              </EuiFlexGroup>
+            </EuiFormRow>
+
+          </>
+        )}
+
+        {values.frequency === 'cronExpression' && (
+          <>
+            <EuiFormRow label="Run every">
+              <EuiTextArea
+                data-test-subj="pplCronExpression"
+                value={values.cronExpression || ''}
+                onChange={(e) => setFieldValue('cronExpression', e.target.value)}
+                placeholder="0 */1 * * *"
+                rows={2}
+              />
+            </EuiFormRow>
+            <EuiText size="xs" color="subdued">
+              Use cron expressions for complex schedules
+            </EuiText>
+
+            <EuiSpacer size="m" />
+          </>
+        )}
+        {LookBackControls}
+      </>
+    );
+  };
+  // ---- END PPL schedule ----
 
   render() {
     const {
@@ -175,56 +1161,163 @@ export default class CreateMonitor extends Component {
       isDarkMode,
       notificationService,
     } = this.props;
-    const { createModalOpen, initialValues, plugins } = this.state;
+    const { createModalOpen, initialValues, plugins, pluginsLoading } = this.state;
+
     return (
       <div style={{ padding: '16px' }}>
         <Formik
+          innerRef={this.formikRef}
           initialValues={initialValues}
           onSubmit={this.evaluateSubmission}
           validateOnChange={false}
-          enableReinitialize={true}
+          enableReinitialize={false}
         >
-          {({ values, errors, handleSubmit, isSubmitting, isValid, touched }) => {
+          {({ values, errors, handleSubmit, isSubmitting, isValid, touched, setFieldValue }) => {
             const isComposite = values.monitor_type === MONITOR_TYPE.COMPOSITE_LEVEL;
+            const safeMonitor = this.buildMonitorForTriggers(values);
+            const safeTriggers = _.get(safeMonitor, 'triggers', []);
+
+            const LegacyToggleHeader = (
+              <EuiCheckbox
+                id="useLegacyMonitorsHeader"
+                label={
+                  <span>
+                    Use legacy monitors{' '}
+                    <EuiToolTip content="Use pre-existing monitor types available in legacy alerts.">
+                      <EuiIconTip type="iInCircle" data-test-subj="legacyInfoHeader" />
+                    </EuiToolTip>
+                  </span>
+                }
+                checked={values.monitor_mode === 'legacy'}
+                onChange={(e) => setFieldValue('monitor_mode', e.target.checked ? 'legacy' : 'ppl')}
+                data-test-subj="useLegacyCheckboxHeader"
+              />
+            );
+
+            const LegacyToggleInline = (
+              // Shown only in Legacy flow (bottom of Monitor Details card area)
+              <EuiFormRow fullWidth>
+                <EuiCheckbox
+                  id="useLegacyMonitorsInline"
+                  label={
+                    <span>
+                      Use legacy monitors{' '}
+                      <EuiToolTip content="Use pre-existing monitor types available in legacy alerts.">
+                        <EuiIconTip type="iInCircle" data-test-subj="legacyInfoInline" />
+                      </EuiToolTip>
+                    </span>
+                  }
+                  checked={values.monitor_mode === 'legacy'}
+                  onChange={(e) => setFieldValue('monitor_mode', e.target.checked ? 'legacy' : 'ppl')}
+                  data-test-subj="useLegacyCheckboxInline"
+                />
+              </EuiFormRow>
+            );
+
             return (
               <Fragment>
-                <PageHeader>
-                  <EuiText size="s">
-                    <h1>{edit ? 'Edit' : 'Create'} monitor</h1>
-                  </EuiText>
-                  <EuiSpacer />
-                </PageHeader>
+              <PageHeader>
+                <EuiText size="s">
+                  <h1>{edit ? 'Edit' : 'Create'} monitor</h1>
+                </EuiText>
+              </PageHeader>
 
-                <MonitorDetails
-                  values={values}
-                  errors={errors}
-                  history={history}
-                  httpClient={httpClient}
-                  monitorToEdit={monitorToEdit}
-                  plugins={plugins}
-                  isAd={values.searchType === SEARCH_TYPE.AD}
-                  detectorId={this.props.detectorId}
-                  setFlyout={this.props.setFlyout}
-                />
+                {values.monitor_mode === 'ppl' ? (
+                  <div data-test-subj="pplBranch">
+                    <CustomSteps
+                      steps={[
+                        {
+                          title: 'Monitor details',
+                          children: this.renderPplDetailsBody(values, setFieldValue),
+                        },
+                        {
+                          title: 'Query',
+                          children: this.renderPplQueryBody(values, setFieldValue),
+                        },
+                        {
+                          title: 'Schedule',
+                          children: this.renderPplScheduleBody(values, setFieldValue),
+                        },
+                        {
+                          title: 'Triggers',
+                          children: (
+                            <>
+                              <FieldArray name="triggerDefinitions" validateOnChange>
+                                {(triggerArrayHelpers) => (
+                                  <ConfigureTriggers
+                                    edit={edit}
+                                    triggerArrayHelpers={triggerArrayHelpers}
+                                    monitor={safeMonitor}
+                                    monitorValues={values}
+                                    touched={touched}
+                                    setFlyout={this.props.setFlyout}
+                                    triggers={safeTriggers}
+                                    triggerValues={values}
+                                    isDarkMode={this.props.isDarkMode}
+                                    httpClient={httpClient}
+                                    notifications={notifications}
+                                    notificationService={notificationService}
+                                    plugins={plugins}
+                                    pluginsLoading={pluginsLoading}
+                                  />
+                                )}
+                              </FieldArray>
 
-                {values.preventVisualEditor ? null : (
-                  <Fragment>
-                    {isComposite ? (
+                              <EuiSpacer />
+                              <EuiFlexGroup alignItems="center" justifyContent="flexEnd">
+                                <EuiFlexItem grow={false}>
+                                  <EuiSmallButtonEmpty onClick={this.onCancel}>
+                                    Cancel
+                                  </EuiSmallButtonEmpty>
+                                </EuiFlexItem>
+                                <EuiFlexItem grow={false}>
+                                  <EuiSmallButton fill onClick={handleSubmit} isLoading={isSubmitting}>
+                                    {edit ? 'Save' : 'Create'}
+                                  </EuiSmallButton>
+                                </EuiFlexItem>
+                              </EuiFlexGroup>
+                            </>
+                          ),
+                        },
+                      ]}
+                    />
+                  </div>
+                ) : (
+                  <div data-test-subj="legacyBranch">
+                    {/* Monitor Details card */}
+                    <MonitorDetails
+                      values={values}
+                      errors={errors}
+                      history={history}
+                      httpClient={httpClient}
+                      monitorToEdit={monitorToEdit}
+                      plugins={plugins}
+                      isAd={values.searchType === SEARCH_TYPE.AD}
+                      detectorId={this.props.detectorId}
+                      setFlyout={this.props.setFlyout}
+                    />
+
+                    {/* Place the legacy toggle RIGHT BELOW the Monitor Details card
+                        (i.e., after schedule's "Run every" UI) */}
+                    <EuiSpacer size="s" />
+                    {LegacyToggleInline}
+                    <EuiSpacer />
+
+                    {isComposite && (
                       <>
-                        <EuiSpacer />
                         <WorkflowDetails
                           isDarkMode={isDarkMode}
                           values={values}
                           httpClient={httpClient}
                           errors={errors}
                         />
+                        <EuiSpacer />
                       </>
-                    ) : null}
-
-                    <EuiSpacer />
+                    )}
 
                     {values.searchType !== SEARCH_TYPE.AD &&
-                      values.monitor_type !== MONITOR_TYPE.COMPOSITE_LEVEL && (
+                      values.monitor_type !== MONITOR_TYPE.COMPOSITE_LEVEL &&
+                      !values.preventVisualEditor && (
                         <div>
                           <DefineMonitor
                             values={values}
@@ -241,22 +1334,23 @@ export default class CreateMonitor extends Component {
                         </div>
                       )}
 
-                    <FieldArray name={'triggerDefinitions'} validateOnChange={true}>
+                    <FieldArray name="triggerDefinitions" validateOnChange>
                       {(triggerArrayHelpers) => (
                         <ConfigureTriggers
                           edit={edit}
                           triggerArrayHelpers={triggerArrayHelpers}
-                          monitor={formikToMonitor(values)}
+                          monitor={safeMonitor}
                           monitorValues={values}
                           touched={touched}
                           setFlyout={this.props.setFlyout}
-                          triggers={_.get(formikToMonitor(values), 'triggers', [])}
+                          triggers={safeTriggers}
                           triggerValues={values}
                           isDarkMode={this.props.isDarkMode}
                           httpClient={httpClient}
                           notifications={notifications}
                           notificationService={notificationService}
                           plugins={plugins}
+                          pluginsLoading={pluginsLoading}
                         />
                       )}
                     </FieldArray>
@@ -272,7 +1366,7 @@ export default class CreateMonitor extends Component {
                         </EuiSmallButton>
                       </EuiFlexItem>
                     </EuiFlexGroup>
-                  </Fragment>
+                  </div>
                 )}
 
                 <SubmitErrorHandler
@@ -292,10 +1386,7 @@ export default class CreateMonitor extends Component {
                     edit: edit,
                     onClose: () => {
                       this.state.formikBag.setSubmitting(false);
-                      this.setState({
-                        createModalOpen: false,
-                        formikBag: undefined,
-                      });
+                      this.setState({ createModalOpen: false, formikBag: undefined });
                     },
                     onSubmit: () => {
                       this.onSubmit(values, this.state.formikBag);
@@ -311,3 +1402,4 @@ export default class CreateMonitor extends Component {
     );
   }
 }
+export default CreateMonitor;

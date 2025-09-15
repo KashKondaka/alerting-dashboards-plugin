@@ -20,11 +20,19 @@ export const toSnake = (value, key) => snakeCase(key);
 export const toCamel = (value, key) => camelCase(key);
 
 export const isIndexNotFoundError = (err) => {
-  return (
-    err.statusCode === 404 &&
-    get(err, 'body.error.reason', '') ===
-      'Configured indices are not found: [.opendistro-alerting-config]'
-  );
+  // Check for 404 status and index_not_found_exception type
+  if (err.statusCode === 404) {
+    const errorType = get(err, 'body.error.type', '');
+    const errorReason = get(err, 'body.error.reason', '');
+    
+    // Match any index_not_found_exception or the legacy specific message
+    return (
+      errorType === 'index_not_found_exception' ||
+      errorReason === 'Configured indices are not found: [.opendistro-alerting-config]' ||
+      errorReason.includes('no such index')
+    );
+  }
+  return false;
 };
 
 export function createValidateQuerySchema(dataSourceEnabled, fields = {}) {

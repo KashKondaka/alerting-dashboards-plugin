@@ -139,19 +139,7 @@ export default function getOverviewStats(
   const dataSources = getDataSources(monitor, localClusterName);
 
   const overviewStats = [
-    {
-      header: 'Monitor type',
-      value: getMonitorLevelType(monitorLevelType),
-    },
-    {
-      header: 'Monitor definition type',
-      value: getMonitorType(searchType, monitor),
-    },
     ...detectorOverview,
-    {
-      header: 'Index',
-      value: getDataSourcesDisplay(dataSources, localClusterName, monitorLevelType, setFlyout),
-    },
     {
       header: 'Total active alerts',
       value: activeCount,
