@@ -33,6 +33,190 @@ export default class MonitorService extends MDSEnabledClientService {
     }
   };
 
+  createPPLMonitor = async (context, req, res) => {
+    console.log("monitorservice", req.body);
+    try {
+      const params = { body: req.body };
+      const client = this.getClientBasedOnDataSource(context, req);
+      const createResponse = await client('alerting.createPPLMonitor', params);
+      return res.ok({
+        body: {
+          ok: true,
+          resp: createResponse,
+        },
+      });
+    } catch (err) {
+      console.error('Alerting - MonitorService - createPPLMonitor:', err);
+      return res.ok({
+        body: {
+          ok: false,
+          resp: err.message,
+        },
+      });
+    }
+  };
+
+  updatePPLMonitor = async (context, req, res) => {
+    console.log("monitorservice", req.body);
+    try {
+      const params = { body: req.body };
+      const client = this.getClientBasedOnDataSource(context, req);
+      const createResponse = await client('alerting.updatePPLMonitor', params);
+      return res.ok({
+        body: {
+          ok: true,
+          resp: createResponse,
+        },
+      });
+    } catch (err) {
+      console.error('Alerting - MonitorService - updatePPLMonitor:', err);
+      return res.ok({
+        body: {
+          ok: false,
+          resp: err.message,
+        },
+      });
+    }
+  };
+
+  getPPLMonitor = async (context, req, res) => {
+    console.log("monitorservice", req.body);
+    try {
+      const params = { body: req.body };
+      const client = this.getClientBasedOnDataSource(context, req);
+      const createResponse = await client('alerting.getPPLMonitor', params);
+      return res.ok({
+        body: {
+          ok: true,
+          resp: createResponse,
+        },
+      });
+    } catch (err) {
+      console.error('Alerting - MonitorService - getPPLMonitor:', err);
+      return res.ok({
+        body: {
+          ok: false,
+          resp: err.message,
+        },
+      });
+    }
+  };
+
+  deletePPLMonitor = async (context, req, res) => {
+    console.log("monitorservice", req.body);
+    try {
+      const params = { body: req.body };
+      const client = this.getClientBasedOnDataSource(context, req);
+      const createResponse = await client('alerting.deletePPLMonitor', params);
+      return res.ok({
+        body: {
+          ok: true,
+          resp: createResponse,
+        },
+      });
+    } catch (err) {
+      console.error('Alerting - MonitorService - deletePPLMonitor:', err);
+      return res.ok({
+        body: {
+          ok: false,
+          resp: err.message,
+        },
+      });
+    }
+  };
+
+  searchPPLMonitor = async (context, req, res) => {
+    console.log("monitorservice", req.body);
+    try {
+      const params = { body: req.body };
+      const client = this.getClientBasedOnDataSource(context, req);
+      const createResponse = await client('alerting.searchPPLMonitor', params);
+      return res.ok({
+        body: {
+          ok: true,
+          resp: createResponse,
+        },
+      });
+    } catch (err) {
+      console.error('Alerting - MonitorService - searchPPLMonitor:', err);
+      return res.ok({
+        body: {
+          ok: false,
+          resp: err.message,
+        },
+      });
+    }
+  };
+
+  executePPLMonitorById = async (context, req, res) => {
+    console.log("monitorservice", req.body);
+    try {
+      const params = { body: req.body };
+      const client = this.getClientBasedOnDataSource(context, req);
+      const createResponse = await client('alerting.executePPLMonitorById', params);
+      return res.ok({
+        body: {
+          ok: true,
+          resp: createResponse,
+        },
+      });
+    } catch (err) {
+      console.error('Alerting - MonitorService - executePPLMonitorById:', err);
+      return res.ok({
+        body: {
+          ok: false,
+          resp: err.message,
+        },
+      });
+    }
+  };
+
+  executePPLMonitor = async (context, req, res) => {
+    console.log("monitorservice", req.body);
+    try {
+      const params = { body: req.body };
+      const client = this.getClientBasedOnDataSource(context, req);
+      const createResponse = await client('alerting.executePPLMonitor', params);
+      return res.ok({
+        body: {
+          ok: true,
+          resp: createResponse,
+        },
+      });
+    } catch (err) {
+      console.error('Alerting - MonitorService - executePPLMonitor:', err);
+      return res.ok({
+        body: {
+          ok: false,
+          resp: err.message,
+        },
+      });
+    }
+  };
+
+  alertsPPLMonitor = async (context, req, res) => {
+    console.log("monitorservice", req.body);
+    try {
+      const params = { body: req.body };
+      const client = this.getClientBasedOnDataSource(context, req);
+      const createResponse = await client('alerting.alertsPPLMonitor', params);
+      return res.ok({
+        body: {
+          ok: true,
+          resp: createResponse,
+        },
+      });
+    } catch (err) {
+      console.error('Alerting - MonitorService - alertsPPLMonitor:', err);
+      return res.ok({
+        body: {
+          ok: false,
+          resp: err.message,
+        },
+      });
+    }
+  };
+
   createWorkflow = async (context, req, res) => {
     try {
       const params = { body: req.body };

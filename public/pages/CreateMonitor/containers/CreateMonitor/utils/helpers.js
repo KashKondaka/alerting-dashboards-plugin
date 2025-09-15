@@ -40,6 +40,13 @@ export const getInitialValues = ({
     (initialValue, queryValue) => (_.isEmpty(queryValue) ? initialValue : queryValue)
   );
 
+  // allow ?mode=ppl to deep-link into the new flow
+  const params = queryString.parse(location.search);
+  if (params?.mode === 'ppl') {
+    initialValues.monitor_mode = 'ppl';
+    initialValues.searchType = 'query'; // not used by ppl, but avoids legacy assumptions
+  }
+
   if (flyoutMode) {
     initialValues.name = `${title} ${getDigitId()}`;
     initialValues.index = index;
@@ -69,6 +76,7 @@ export const getInitialValues = ({
       ...monitorToFormik(monitorToEdit),
       triggerDefinitions: triggers.triggerDefinitions,
     };
+    if (!('monitor_mode' in initialValues)) initialValues.monitor_mode = 'legacy';
   }
 
   return initialValues;
@@ -262,3 +270,242 @@ export const submit = ({
     create({ history, monitor, formikBag, httpClient, notifications, onSuccess });
   }
 };
+
+/** ----------------------------------------------------------------
+ * New helpers (Alerting V2 / PPL)
+ * ---------------------------------------------------------------*/
+
+/**
+ * Small service wrapper that calls the server (proxy) API for V2 routes.
+ */
+export const makeAlertingV2Service = (httpClient) => {
+  const base = '../api/alerting/v2';
+
+  const withDataSource = () => {
+    const ds = getDataSourceQueryObj();
+    return ds?.query || {};
+  };
+
+  return {
+    /** Create a PPL MonitorV2 */
+    createMonitor: async (body, { dataSourceId } = {}) => {
+      const query = withDataSource();
+      if (dataSourceId) query['dataSourceId'] = dataSourceId;
+      console.log("createmonitor body:", JSON.stringify(body));
+      return httpClient.post(`${base}/monitors`, {
+        body: JSON.stringify(body),
+        query,
+      }).then((r) => {
+        if (!r.ok) throw r.resp || r;
+        return r.resp;
+      });
+    },
+
+    /** Update an existing PPL MonitorV2 */
+    updateMonitor: async (id, body, { ifSeqNo, ifPrimaryTerm, dataSourceId } = {}) => {
+      const query = withDataSource();
+      if (dataSourceId) query['dataSourceId'] = dataSourceId;
+      if (Number.isFinite(ifSeqNo)) query['if_seq_no'] = ifSeqNo;
+      if (Number.isFinite(ifPrimaryTerm)) query['if_primary_term'] = ifPrimaryTerm;
+      return httpClient.put(`${base}/monitors/${encodeURIComponent(id)}`, {
+        body: JSON.stringify(body),
+        query,
+      }).then((r) => {
+        if (!r.ok) throw r.resp || r;
+        return r.resp;
+      });
+    },
+
+    /** Run a lightweight PPL preview (query-only) */
+    previewPPL: async (queryText, { dataSourceId } = {}) => {
+      const query = withDataSource();
+      if (dataSourceId) query['dataSourceId'] = dataSourceId;
+      return httpClient.post(`${base}/preview`, {
+        body: JSON.stringify({ query: queryText }),
+        query,
+      }).then((r) => {
+        if (!r.ok) throw r.resp || r;
+        return r.resp;
+      });
+    },
+  };
+};
+
+/** Map Formik values -> V2 schedule (Interval or Cron) */
+export const pplToV2Schedule = (values) => {
+  if (values.frequency === 'interval') {
+    return {
+      period: {
+        interval: Number(values.period?.interval || 1),
+        unit: values.period?.unit || 'MINUTES',
+      },
+    };
+  }
+  if (values.frequency === 'cronExpression' && values.cronExpression) {
+    return {
+      cron: {
+        expression: values.cronExpression,
+        timezone: values.timezone || 'UTC',
+      },
+    };
+  }
+  // fallback
+  return {
+    period: {
+      interval: 1,
+      unit: 'MINUTES',
+    },
+  };
+};
+
+/** Convert a triggerDefinition from Formik -> ppl_trigger payload */
+const formikPplTriggerToWire = (t, i = 0) => {
+  const normalizeSeverity = (s) => {
+    const v = String(s ?? '').toLowerCase();
+    if (['info', 'low', 'medium', 'high', 'critical', 'error'].includes(v)) return v;
+    if (v === '0') return 'info';
+    if (v === '1') return 'low';
+    if (v === '2') return 'medium';
+    if (v === '3') return 'high';
+    if (v === '4') return 'critical';
+    return 'info';
+  };
+
+  const type = (t?.conditionType || t?.type || 'number_of_results');
+  const isNum = type === 'number_of_results';
+
+  return {
+    name: t?.name || `trigger${i + 1}`,
+    severity: normalizeSeverity(t?.severity),
+    actions: t?.actions || [],
+    mode: t?.mode || 'result_set',                   // 'result_set' | 'per_result'
+    type,                                            // 'number_of_results' | 'custom'
+    num_results_condition: isNum ? (t?.numResultsOp || t?.operator || '>=') : null,
+    num_results_value: isNum ? Number(t?.numResultsValue ?? t?.value ?? 1) : null,
+    custom_condition: !isNum ? (t?.customCondition || null) : null,
+    suppress: t?.suppress ?? null,
+    expires: t?.expires || '7d',
+    last_triggered_time: null,
+  };
+};
+
+/**
+ * Build the MonitorV2 (PPL) payload expected by backend.
+ * Shape: { "monitor_v2": { "ppl_monitor": { ... } } }
+ */
+export const buildPPLMonitorFromFormik = (values) => {
+  const defs = Array.isArray(values.triggerDefinitions) ? values.triggerDefinitions : [];
+  const triggers = defs.length
+    ? defs.map(formikPplTriggerToWire)
+    : [{
+        name: 'trigger1',
+        severity: 'info',
+        actions: [],
+        mode: 'result_set',
+        type: 'number_of_results',
+        num_results_condition: '>=',
+        num_results_value: 1,
+        custom_condition: null,
+        suppress: null,
+        expires: '7d',
+        last_triggered_time: null,
+      }];
+
+  return {
+    ppl_monitor: {
+      name: values.name || 'Untitled monitor',
+      enabled: !values.disabled,
+      schedule: pplToV2Schedule(values),
+      look_back_window: values.frequency === 'cronExpression'
+        ? (values.lookBackWindow || null)
+        : null,
+      triggers,
+      schema_version: 0,
+      query_language: 'ppl',
+      query: values.pplQuery || '',
+    },
+  };
+};
+
+/** Convenience: run preview via service */
+export const runPPLPreview = async (httpClient, { queryText, dataSourceId }) => {
+  const api = makeAlertingV2Service(httpClient);
+  return api.previewPPL(queryText, { dataSourceId });
+};
+
+/** Create or update a PPL MonitorV2 */
+export const submitPPL = async ({
+  values,
+  formikBag,
+  edit,
+  monitorToEdit,
+  history,
+  notifications,
+  httpClient,
+  dataSourceId,
+}) => {
+  const { setSubmitting } = formikBag;
+  const api = makeAlertingV2Service(httpClient);
+  const body = buildPPLMonitorFromFormik(values);
+
+  try {
+    if (edit && monitorToEdit?._id) {
+      const seqNo = monitorToEdit?._seq_no;
+      const primary = monitorToEdit?._primary_term;
+      await api.updateMonitor(monitorToEdit._id, body, {
+        ifSeqNo: seqNo,
+        ifPrimaryTerm: primary,
+        dataSourceId,
+      });
+      notifications.toasts.addSuccess(`Monitor "${values.name}" saved.`);
+      history.push(`/monitors/${monitorToEdit._id}`);
+    } else {
+      console.log("body:", body);
+      const res = await api.createMonitor(body, { dataSourceId });
+      notifications.toasts.addSuccess(`Monitor "${values.name}" successfully created.`);
+      history.push(`/monitors/${res._id || res.id || ''}`);
+    }
+  } catch (e) {
+    notifications.toasts.addDanger(
+      e?.message || e?.body?.message || `Failed to ${edit ? 'update' : 'create'} the monitor`
+    );
+  } finally {
+    setSubmitting(false);
+  }
+};
+
+// export const submitPPL = async ({
+//   values,
+//   formikBag,
+//   edit,
+//   monitorToEdit,
+//   history,
+//   notifications,
+//   httpClient,
+//   dataSourceId,
+// }) => {
+//   const { setSubmitting } = formikBag;
+//   const api = makeAlertingV2Service(httpClient);
+
+//   const body = {};  // <<<<<<<<<<<<<<<<<<<<<
+
+//   try {
+//     if (edit && monitorToEdit?._id) {
+//       await api.updateMonitor(monitorToEdit._id, body, {
+//         ifSeqNo: monitorToEdit?._seq_no,
+//         ifPrimaryTerm: monitorToEdit?._primary_term,
+//         dataSourceId,
+//       });
+//       notifications.toasts.addSuccess(`Monitor "${values.name}" saved.`);
+//       history.push(`/monitors/${monitorToEdit._id}`);
+//     } else {
+//       const res = await api.createMonitor(body, { dataSourceId });
+//       notifications.toasts.addSuccess(`Monitor "${values.name}" successfully created.`);
+//       history.push(`/monitors/${res._id || res.id || ''}`);
+//     }
+//   } catch (e) {
+//     notifications.toasts.addDanger(e?.message || e?.body?.message || 'Failed to create the monitor');
+//   } finally {
+//     setSubmitting(false);
+//   }
+// };

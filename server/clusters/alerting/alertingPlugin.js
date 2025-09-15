@@ -62,6 +62,100 @@ export default function alertingPlugin(Client, config, components) {
     method: 'POST',
   });
 
+  alerting.createPPLMonitor = ca({
+    url: {
+      fmt: `/_plugins/_alerting/v2/monitors`,
+    },
+    needBody: true,
+    method: 'POST',
+  });
+
+  alerting.updatePPLMonitor = ca({
+    url: {
+      fmt: `/_plugins/_alerting/v2/monitors/{id}`,
+      req: {
+        id: {
+          type: 'string',
+          required: true,
+        },
+      },
+    },
+    needBody: true,
+    method: 'POST',
+  });
+
+  alerting.getPPLMonitor = ca({
+    url: {
+      fmt: `/_plugins/_alerting/v2/monitors/{id}`,
+      req: {
+        id: {
+          type: 'string',
+          required: true,
+        },
+      },
+    },
+    needBody: true,
+    method: 'GET',
+  });
+
+  alerting.deletePPLMonitor = ca({
+    url: {
+      fmt: `/_plugins/_alerting/v2/monitors/{id}`,
+      req: {
+        id: {
+          type: 'string',
+          required: true,
+        },
+      },
+    },
+    needBody: true,
+    method: 'DELETE',
+  });
+
+  alerting.searchPPLMonitor = ca({
+    url: {
+      fmt: `/_plugins/_alerting/v2/monitors/_search`,
+      req: {
+        id: {
+          type: 'string',
+          required: true,
+        },
+      },
+    },
+    needBody: true,
+    method: 'POST',
+  });
+
+  alerting.executePPLMonitorById = ca({
+    url: {
+      fmt: `/_plugins/_alerting/v2/monitors/{id}/_execute`,
+      req: {
+        id: {
+          type: 'string',
+          required: true,
+        },
+      },
+    },
+    needBody: true,
+    method: 'POST',
+  });
+
+  alerting.executePPLMonitor = ca({
+    url: {
+      fmt: `/_plugins/_alerting/v2/monitors/_execute`,
+    },
+    needBody: true,
+    method: 'POST',
+  });
+
+  alerting.alertsPPLMonitor = ca({
+    url: {
+      fmt: `/_plugins/_alerting/v2/alerts`,
+    },
+    needBody: true,
+    method: 'GET',
+  });
+
   alerting.createWorkflow = ca({
     url: {
       fmt: `${API_ROUTE_PREFIX}/workflows?refresh=wait_for`,

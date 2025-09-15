@@ -53,6 +53,94 @@ export default function (services, router, dataSourceEnabled) {
 
   router.post(
     {
+      path: '/api/alerting/v2/monitors',
+      validate: {
+        body: schema.any(),
+        query: createValidateQuerySchema(dataSourceEnabled),
+      },
+    },
+    monitorService.createPPLMonitor
+  );
+
+  router.post(
+    {
+      path: '/api/alerting/v2/monitors/{id}',
+      validate: {
+        body: schema.any(),
+        query: createValidateQuerySchema(dataSourceEnabled),
+      },
+    },
+    monitorService.updatePPLMonitor
+  );
+
+  router.get(
+    {
+      path: '/api/alerting/v2/monitors/{id}',
+      validate: {
+        body: schema.any(),
+        query: createValidateQuerySchema(dataSourceEnabled),
+      },
+    },
+    monitorService.getPPLMonitor
+  );
+
+  router.delete(
+    {
+      path: '/api/alerting/v2/monitors/{id}',
+      validate: {
+        body: schema.any(),
+        query: createValidateQuerySchema(dataSourceEnabled),
+      },
+    },
+    monitorService.deletePPLMonitor
+  );
+
+  router.post(
+    {
+      path: '/api/alerting/v2/monitors/_search',
+      validate: {
+        body: schema.any(),
+        query: createValidateQuerySchema(dataSourceEnabled),
+      },
+    },
+    monitorService.searchPPLMonitor
+  );
+
+  router.post(
+    {
+      path: '/api/alerting/v2/monitors/{id}/_execute',
+      validate: {
+        body: schema.any(),
+        query: createValidateQuerySchema(dataSourceEnabled),
+      },
+    },
+    monitorService.executePPLMonitorById
+  );
+
+  router.post(
+    {
+      path: '/api/alerting/v2/monitors/_execute',
+      validate: {
+        body: schema.any(),
+        query: createValidateQuerySchema(dataSourceEnabled),
+      },
+    },
+    monitorService.executePPLMonitor
+  );
+
+  router.get(
+    {
+      path: '/api/alerting/v2/alerts',
+      validate: {
+        body: schema.any(),
+        query: createValidateQuerySchema(dataSourceEnabled),
+      },
+    },
+    monitorService.alertsPPLMonitor
+  );
+
+  router.post(
+    {
       path: '/api/alerting/workflows',
       validate: {
         body: schema.any(),

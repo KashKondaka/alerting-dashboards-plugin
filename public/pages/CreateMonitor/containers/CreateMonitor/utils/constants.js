@@ -50,6 +50,9 @@ export const FORMIK_INITIAL_VALUES = {
   /* DEFINE MONITOR */
   monitor_type: MONITOR_TYPE.QUERY_LEVEL,
   searchType: 'graph',
+  pplQuery: '',              // <-- new editor value for PPL mode
+  pplPreviewResult: null,    // <-- optional, for Preview panel state
+  pplPreviewError: null,     // <-- optional, for Preview error state
   clusterNames: [],
   uri: {
     api_type: '',
@@ -79,6 +82,9 @@ export const FORMIK_INITIAL_VALUES = {
   associatedMonitorsList: [],
   associatedMonitorsEditor: '',
   preventVisualEditor: false,
+
+  /* MODE TOGGLE */
+  monitor_mode: 'legacy', // 'legacy' | 'ppl'
 };
 
 if (dataSourceEnabled()) {

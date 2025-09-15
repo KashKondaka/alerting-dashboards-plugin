@@ -22,7 +22,99 @@ import {
   DOC_LEVEL_QUERY_MAP,
 } from '../../../components/DocumentLevelMonitorQueries/utils/constants';
 
+function mapSeverityToString(input) {
+  const s = String(input ?? '').toLowerCase().trim();
+  if (['info', 'error', 'low', 'medium', 'high', 'critical'].includes(s)) return s;
+  if (s === '0') return 'info';
+  if (s === '1') return 'low';
+  if (s === '2') return 'medium';
+  if (s === '3') return 'high';
+  if (s === '4') return 'critical';
+  return 'low';
+}
+
+function buildPplTriggerFromFormik(tDef, idx = 0) {
+  const base = tDef?.pplTrigger || tDef?.queryLevelTrigger || tDef || {};
+  const name = base.name || tDef?.name || `trigger_${idx + 1}`;
+  const severity = mapSeverityToString(base.severity ?? tDef?.severity);
+
+  const type = (base.type || base.conditionType || 'number_of_results').toLowerCase();
+  const mode = (base.mode || 'result_set').toLowerCase();
+
+  const numCond = base.num_results_condition || base.operator || base.thresholdComparator || '>=';
+  const numVal =
+    base.num_results_value ??
+    base.value ??
+    base.thresholdValue ??
+    1;
+
+  const customCond = base.custom_condition ?? base.customCondition ?? null;
+  const actions = base.actions || [];
+
+  return {
+    name,
+    severity, 
+    actions,
+    mode, 
+    type, 
+    num_results_condition: type === 'number_of_results' ? numCond : null,
+    num_results_value: type === 'number_of_results' ? Number(numVal) : null,
+    custom_condition: type === 'custom' ? (customCond || 'false') : null,
+    suppress: base.suppress ?? null, 
+    expires: base.expires || '7d',
+    last_triggered_time: null,
+  };
+}
+
+function buildPplTriggers(values) {
+  const defs = values?.triggerDefinitions;
+  if (Array.isArray(defs) && defs.length > 0) {
+    return defs.map((t, i) => buildPplTriggerFromFormik(t, i));
+  }
+  return [
+    {
+      name: 'trigger1',
+      severity: 'info',
+      actions: [],
+      mode: 'result_set',
+      type: 'number_of_results',
+      num_results_condition: '>=',
+      num_results_value: 1,
+      custom_condition: null,
+      suppress: null,
+      expires: '7d',
+      last_triggered_time: null,
+    },
+  ];
+}
+
 export function formikToMonitor(values) {
+  // ppl
+  if (values.monitor_mode === 'ppl') {
+    const uiSchedule = formikToUiSchedule(values);
+    const schedule = buildSchedule(values.frequency, uiSchedule);
+
+    const lookBack =
+      values.frequency === 'cronExpression'
+        ? (values.look_back_window || null)
+        : null;
+
+    const triggers = buildPplTriggers(values);
+
+    return {
+      ppl_monitor: {
+        name: (values.name || 'Untitled monitor').trim(),
+        enabled: !values.disabled,
+        schedule,
+        look_back_window: lookBack,
+        triggers,
+        schema_version: 0,
+        query_language: 'ppl',
+        query: values.pplQuery || '',
+      },
+    };
+  }
+  //legacy 
   const uiSchedule = formikToUiSchedule(values);
   const schedule = buildSchedule(values.frequency, uiSchedule);
 
@@ -59,7 +151,7 @@ export function formikToMonitor(values) {
       inputs: [formikToInputs(values)],
       triggers: [],
       ui_metadata: {
-        schedule: uiSchedule,
+        schedule: formikToUiSchedule(values),
         monitor_type: values.monitor_type,
         ...monitorUiMetadata(),
       },
@@ -75,7 +167,7 @@ export function formikToMonitor(values) {
     inputs: [formikToInputs(values)],
     triggers: [],
     ui_metadata: {
-      schedule: uiSchedule,
+      schedule: formikToUiSchedule(values),
       monitor_type: values.monitor_type,
       ...monitorUiMetadata(),
     },
@@ -221,10 +313,7 @@ export function formikToQuery(values) {
 export function formikToExtractionQuery(values) {
   let query = _.get(values, 'query', FORMIK_INITIAL_VALUES.query);
   try {
-    // JSON.parse() throws an exception when the argument is a malformed JSON string.
-    // This caused exceptions when tinkering with the JSON in the code editor.
-    // This try/catch block will only parse the JSON string if it is not malformed.
-    // It will otherwise store the JSON as a string for continued editing.
+    // Parse if valid; otherwise keep as string for editor
     query = JSON.parse(query);
   } catch (err) {}
   return query;
@@ -327,9 +416,7 @@ export function formikToCompositeAggregation(values) {
 
   let aggs = {};
   aggregations.map((aggItem) => {
-    // TODO: Changing any occurrence of '.' in the fieldName to '_' since the
-    //  bucketSelector uses the '.' syntax to resolve aggregation paths.
-    //  Should revisit this as replacing with `_` could cause collisions with fields named like that.
+    // Replace '.' with '_' to avoid bucket path issues
     const name = `${aggItem.aggregationType}_${aggItem.fieldName.replace(/\./g, '_')}`;
     const type = aggItem.aggregationType === 'count' ? 'value_count' : aggItem.aggregationType;
     aggs[name] = {
@@ -465,9 +552,6 @@ export function formikToUiCompositeAggregation(values) {
 
   let aggs = {};
   aggregations.map((aggItem) => {
-    // TODO: Changing any occurrence of '.' in the fieldName to '_' since the
-    //  bucketSelector uses the '.' syntax to resolve aggregation paths.
-    //  Should revisit this as replacing with `_` could cause collisions with fields named like that.
     const name = `${aggItem.aggregationType}_${aggItem.fieldName.replace(/\./g, '_')}`;
     const type = aggItem.aggregationType === 'count' ? 'value_count' : aggItem.aggregationType;
     aggs[name] = {
@@ -522,7 +606,7 @@ export function buildSchedule(scheduleType, values) {
     period,
     daily,
     weekly,
-    monthly: { type, day },
+    monthly: { type, day } = {},
     cronExpression,
     timezone,
   } = values;
@@ -534,9 +618,9 @@ export function buildSchedule(scheduleType, values) {
       return { cron: { expression: `0 ${daily} * * *`, timezone } };
     }
     case 'weekly': {
-      const daysOfWeek = Object.entries(weekly)
-        .filter(([day, checked]) => checked)
-        .map(([day]) => day.toUpperCase())
+      const daysOfWeek = Object.entries(weekly || {})
+        .filter(([_, checked]) => checked)
+        .map(([dayName]) => dayName.toUpperCase())
         .join(',');
       return { cron: { expression: `0 ${daily} * * ${daysOfWeek}`, timezone } };
     }
@@ -549,5 +633,7 @@ export function buildSchedule(scheduleType, values) {
     }
     case 'cronExpression':
       return { cron: { expression: cronExpression, timezone } };
+    default:
+      return { period: FORMIK_INITIAL_VALUES.period };
   }
 }
