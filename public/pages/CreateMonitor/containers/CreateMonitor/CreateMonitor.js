@@ -220,6 +220,24 @@ export default class CreateMonitor extends Component {
   };
 
   buildMonitorForTriggers = (values) => {
+    // For PPL mode, hand ConfigureTriggers a legacy-shaped stub it understands.
+    if (values.monitor_mode === 'ppl') {
+      return {
+        name: values.name || '',
+        type: 'monitor',
+        monitor_type: MONITOR_TYPE.QUERY_LEVEL,
+        enabled: true,
+        schedule: { period: { interval: 1, unit: 'MINUTES' } },
+        inputs: [{ search: { indices: [], query: { match_all: {} } } }],
+        ui_metadata: {
+          search: { searchType: 'ppl' }, // <- important for trigger UI assumptions
+          triggers: {},
+        },
+        triggers: [], // trigger UI manages values.triggerDefinitions; keep this empty
+      };
+    }
+
+    // Legacy path stays the same as before
     const monitor = formikToMonitor(values) || {};
     if (!Array.isArray(monitor.inputs) || monitor.inputs.length === 0) {
       monitor.inputs = [{ search: { indices: [], query: { match_all: {} } } }];

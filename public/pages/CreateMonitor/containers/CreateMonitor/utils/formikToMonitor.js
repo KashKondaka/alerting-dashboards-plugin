@@ -71,21 +71,7 @@ function buildPplTriggers(values) {
   if (Array.isArray(defs) && defs.length > 0) {
     return defs.map((t, i) => buildPplTriggerFromFormik(t, i));
   }
-  return [
-    {
-      name: 'trigger1',
-      severity: 'info',
-      actions: [],
-      mode: 'result_set',
-      type: 'number_of_results',
-      num_results_condition: '>=',
-      num_results_value: 1,
-      custom_condition: null,
-      suppress: null,
-      expires: '7d',
-      last_triggered_time: null,
-    },
-  ];
+  return [];
 }
 
 export function formikToMonitor(values) {
