@@ -307,6 +307,10 @@ class DefineTrigger extends Component {
       const tsField = pickTimestampFieldFromQuery(basePpl);
       const histogramQuery = buildHistogramPpl(basePpl, tsField);
 
+      console.log('[DefineTriggerV2 PPL] Base query:', basePpl);
+      console.log('[DefineTriggerV2 PPL] Timestamp field:', tsField);
+      console.log('[DefineTriggerV2 PPL] Histogram query:', histogramQuery);
+
       const dataSourceQuery = getDataSourceQueryObj();
       httpClient
         .post('../_plugins/_ppl', {
@@ -314,22 +318,32 @@ class DefineTrigger extends Component {
           query: dataSourceQuery?.query,
         })
         .then((resp) => {
+          console.log('[DefineTriggerV2 PPL] Response ok:', resp.ok);
+          console.log('[DefineTriggerV2 PPL] Response:', resp.resp);
+          
           if (resp.ok) {
             const { buckets, total } = parsePplHistogram(resp.resp);
+            console.log('[DefineTriggerV2 PPL] Parsed buckets:', buckets);
+            console.log('[DefineTriggerV2 PPL] Parsed total:', total);
 
             const finalBuckets = buckets.length > 1 ? buckets : synthesizeFlat1h(12, total);
+            console.log('[DefineTriggerV2 PPL] Final buckets (length:', finalBuckets.length, '):', finalBuckets);
+            
             const graphResponse = toGraphResponse({ buckets: finalBuckets, total });
+            console.log('[DefineTriggerV2 PPL] Graph response:', graphResponse);
 
             // Store the graph response directly; no execute-style wrapper
             this.setState({ graphResponse });
           } else {
+            console.error('[DefineTriggerV2 PPL] Error response:', resp.resp);
             backendErrorNotification(notifications, 'preview', 'query', resp.resp);
             // Keep a flat series so the graph renders even on error
             const graphResponse = toGraphResponse({ buckets: synthesizeFlat1h(0), total: 0 });
             this.setState({ graphResponse });
           }
         })
-        .catch(() => {
+        .catch((err) => {
+          console.error('[DefineTriggerV2 PPL] Catch error:', err);
           const graphResponse = toGraphResponse({ buckets: synthesizeFlat1h(0), total: 0 });
           this.setState({ graphResponse });
         });

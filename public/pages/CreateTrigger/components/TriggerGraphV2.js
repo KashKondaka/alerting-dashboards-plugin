@@ -47,6 +47,8 @@ const TriggerGraphV2 = ({
     }
   }, [thresholdValue, formikHelperRef]);
   
+  console.log('[TriggerGraphV2] Received response:', response);
+  
   // Try common agg names. If still empty, tolerate total-only responses by faking a flat line.
   let buckets =
     _.get(response, 'aggregations.date_histogram.buckets') ||
@@ -61,11 +63,15 @@ const TriggerGraphV2 = ({
     _.get(response, 'total') ??
     0;
 
+  console.log('[TriggerGraphV2] Extracted buckets:', buckets);
+  console.log('[TriggerGraphV2] Extracted total:', total);
+
   // If no buckets, synthesize a 24-bar flat series so VisualGraph never shows empty-state.
   if (!buckets || buckets.length === 0) {
     const now = Date.now();
     const hourMs = 60 * 60 * 1000; // 1h
     buckets = [{ key: now - hourMs, doc_count: 0 }];
+    console.log('[TriggerGraphV2] No buckets found, synthesized:', buckets);
   }
 
   // Normalize into a VisualGraph-friendly shape:
@@ -78,6 +84,10 @@ const TriggerGraphV2 = ({
       ppl_histogram: { buckets },
     },
   };
+  
+  console.log('[TriggerGraphV2] Final graphResponse:', graphResponse);
+  console.log('[TriggerGraphV2] flyoutMode:', flyoutMode);
+  console.log('[TriggerGraphV2] Will render graph:', !flyoutMode);
 
   return (
     <div style={flyoutMode ? {} : { padding: '0px 10px' }}>
@@ -132,6 +142,7 @@ const TriggerGraphV2 = ({
       {!flyoutMode && (
         <>
           {!hideThresholdControls && <EuiSpacer size="m" />}
+          {console.log('[TriggerGraphV2] Rendering AlertingVisualGraph with:', { graphKey, thresholdValue, response: graphResponse })}
           <AlertingVisualGraph
             key={graphKey}
             values={monitorValues}
