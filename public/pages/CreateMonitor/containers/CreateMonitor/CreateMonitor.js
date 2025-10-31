@@ -444,12 +444,33 @@ class CreateMonitor extends Component {
   };
 
   handleLoadSavedQuery = (savedQuery) => {
+    console.log('[handleLoadSavedQuery] Loading saved query:', savedQuery);
     const q = savedQuery?.attributes?.query?.query;
+    let queryText = '';
+    
     if (typeof q === 'string') {
+      queryText = q;
       this.formikRef.current?.setFieldValue('pplQuery', q);
     } else if (q != null) {
-      this.formikRef.current?.setFieldValue('pplQuery', JSON.stringify(q, null, 2));
+      queryText = JSON.stringify(q, null, 2);
+      this.formikRef.current?.setFieldValue('pplQuery', queryText);
     }
+    
+    // Also update the queryString service
+    try {
+      const services = (this.context && (this.context.services || this.context)) || undefined;
+      const queryString = services?.data?.query?.queryString;
+      if (queryString && queryText) {
+        queryString.setQuery({
+          query: queryText,
+          language: 'ppl',
+        });
+        console.log('[handleLoadSavedQuery] Updated queryString service with loaded query');
+      }
+    } catch (err) {
+      console.error('[handleLoadSavedQuery] Error updating queryString service:', err);
+    }
+    
     this.setState({ savedQueriesPopoverOpen: false });
   };
 
@@ -898,6 +919,31 @@ class CreateMonitor extends Component {
                     onClick={() => {
                       console.log('[Saved Queries] Button clicked, current state:', this.state.savedQueriesPopoverOpen);
                       console.log('[Saved Queries] Context at click time:', this.context);
+                      
+                      // CRITICAL: Ensure query is set BEFORE opening the flyout
+                      try {
+                        const services = (this.context && (this.context.services || this.context)) || undefined;
+                        const queryString = services?.data?.query?.queryString;
+                        
+                        if (queryString) {
+                          // Try to get current query
+                          try {
+                            const currentQuery = queryString.getQuery();
+                            console.log('[Saved Queries] Current query already set:', currentQuery);
+                          } catch (getErr) {
+                            // Query not set - initialize it
+                            console.log('[Saved Queries] Query not set, initializing...');
+                            queryString.setQuery({
+                              query: this.formikRef.current?.values?.pplQuery || '',
+                              language: 'ppl',
+                            });
+                            console.log('[Saved Queries] Query initialized before opening flyout');
+                          }
+                        }
+                      } catch (err) {
+                        console.error('[Saved Queries] Error ensuring query is set:', err);
+                      }
+                      
                       const svc = this.getSavedQueryService();
                       console.log('[Saved Queries] Got saved query service:', svc);
                       this.setState((s) => ({ savedQueriesPopoverOpen: !s.savedQueriesPopoverOpen }));
@@ -987,6 +1033,21 @@ class CreateMonitor extends Component {
             // Enforce 10,000 character limit
             if (text.length <= 10000) {
               setFieldValue('pplQuery', text);
+              
+              // Also update the queryString service so saved queries can access it
+              try {
+                const services = (this.context && (this.context.services || this.context)) || undefined;
+                const queryString = services?.data?.query?.queryString;
+                if (queryString) {
+                  queryString.setQuery({
+                    query: text,
+                    language: 'ppl',
+                  });
+                }
+              } catch (err) {
+                // Silent fail - not critical
+              }
+              
               // Trigger debounced timestamp field detection
               this.debouncedDetectTimestampFields(text);
             }
