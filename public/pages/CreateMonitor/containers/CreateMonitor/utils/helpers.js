@@ -755,14 +755,13 @@ export const findCommonDateFields = async (httpClient, indices, dataSourceId) =>
           
           // Include field if:
           // 1. Its type contains 'date' (catches date, date_nanos, date_range, etc.), OR
-          // 2. The field name contains 'date' or 'time' (case-insensitive)
+          // 2. The field name contains 'date' (case-insensitive)
           const fieldType = (fieldDef.type || '').toLowerCase();
           const fieldNameLower = fullFieldName.toLowerCase();
           
           if (
             fieldType.includes('date') || 
-            fieldNameLower.includes('date') ||
-            fieldNameLower.includes('time')
+            fieldNameLower.includes('date')
           ) {
             dateFields.push(fullFieldName);
           }
