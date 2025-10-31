@@ -804,14 +804,9 @@ export const findCommonDateFields = async (httpClient, indices, dataSourceId) =>
  * POST /_plugins/_ppl { query: "<PPL string>" }
  * Returns the raw PPL response. Callers can wrap it into an execute-like shape if needed.
  */
-export const runPPLPreview = async (httpClient, { queryText, dataSourceId } = {}) => {
-  const dataSourceQuery = getDataSourceQueryObj();
-  const query = { ...(dataSourceQuery?.query || {}) };
-  if (dataSourceId) query['dataSourceId'] = dataSourceId;
-
+export const runPPLPreview = async (httpClient, { queryText } = {}) => {
   const resp = await httpClient.post('../_plugins/_ppl', {
     body: JSON.stringify({ query: queryText || '' }),
-    query,
   });
   if (!resp.ok) throw resp.resp || resp;
   return resp.resp;

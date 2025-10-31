@@ -988,7 +988,7 @@ class CreateMonitor extends Component {
           <EuiButton
             size="s"
             onClick={async () => {
-              const { httpClient, landingDataSourceId } = this.props;
+              const { httpClient } = this.props;
               this.setState({
                 previewLoading: true,
                 previewError: null,
@@ -999,7 +999,6 @@ class CreateMonitor extends Component {
               try {
                 const data = await runPPLPreview(httpClient, {
                   queryText: values.pplQuery || '',
-                  dataSourceId: values.dataSourceId || landingDataSourceId,
                 });
                 this.setState({
                   previewResult: data,
