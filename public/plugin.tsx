@@ -33,7 +33,8 @@ import { dataSourceObservable } from './pages/utils/constants';
 import { ContentManagementPluginStart } from '../../../src/plugins/content_management/public';
 import { registerAlertsCard } from './utils/helpers';
 import type { ExplorePluginSetup } from '../../../src/plugins/explore/public';
-import { ResultStatus } from '../../../src/plugins/data/public'
+import { ResultStatus } from '../../../src/plugins/data/public';
+import { CreateMonitorFlyout } from './components/CreateMonitorFlyout';
 
 declare module '../../../src/plugins/ui_actions/public' {
   export interface ActionContextMapping {
@@ -245,51 +246,30 @@ export class AlertingPlugin implements Plugin<void, AlertingStart, AlertingSetup
     uiActions.addTriggerAction(alertingTriggerAd.id, adAction);
 
     /**
-     * Register an action in Explore's Query Panel "Actions" menu
-     * that deep-links users into Alerting's create-monitor (PPL) flow.
+     * Register a flyout action in Explore's Query Panel "Actions" menu
+     * that opens an inline monitor creation flyout with the PPL query pre-filled.
      * Only register if the explore plugin is available.
      */
     const isExploreEnabled = !!explore;
     if (isExploreEnabled) {
-    explore.queryPanelActionsRegistry.register({
-      id: 'alerting-create-monitor-from-explore',
-      order: 1,
-      getIsEnabled: (deps) => {
-        // Allow monitor creation for READY, NO_RESULTS, and ERROR statuses
-        const allowedStatuses = [ResultStatus.READY, ResultStatus.NO_RESULTS, ResultStatus.ERROR];
-        const isStatusAllowed = allowedStatuses.includes(deps.resultStatus.status);
-        
-        // Check if data source is AOSS collection - if so, disable the button
-        const isAOSSCollection = deps.query?.dataset?.dataSource?.type === 'OpenSearch Serverless';
-        
-        return isStatusAllowed && !isAOSSCollection;
-      },
-      getLabel: () => 'Create monitor',
-      getIcon: () => 'bell',
-      onClick: (deps) => {
-        const query = deps.query?.query ?? '';
-        const dataSourceId = deps.query?.dataset?.dataSource?.id;
-        
-        console.log('[Explore Action] Transporting query (length:', query.length, ', lines:', query.split('\n').length, ')');
-        console.log('[Explore Action] Full query:', query);
-        
-        // Store query in sessionStorage to avoid URL length/encoding issues
-        const transferKey = `alerting_query_transfer_${Date.now()}`;
-        sessionStorage.setItem(transferKey, JSON.stringify({
-          query,
-          dataSourceId,
-          timestamp: Date.now(),
-        }));
-        
-        // Pass only the transfer key in URL
-        const urlParams = new URLSearchParams();
-        urlParams.set('qkey', transferKey);
-        
-        navigateToAppRef?.(MONITORS_NAV_ID, {
-          path: `#/create-monitor?${urlParams.toString()}`
-        });
-      },
-    });
+      explore.queryPanelActionsRegistry.register({
+        id: 'alerting-create-monitor-from-explore',
+        actionType: 'flyout',
+        order: 1,
+        getIsEnabled: (deps) => {
+          // Allow monitor creation for READY, NO_RESULTS, and ERROR statuses
+          const allowedStatuses = [ResultStatus.READY, ResultStatus.NO_RESULTS, ResultStatus.ERROR];
+          const isStatusAllowed = allowedStatuses.includes(deps.resultStatus.status);
+
+          // Check if data source is AOSS collection - if so, disable the button
+          const isAOSSCollection = deps.executedQuery?.dataset?.dataSource?.type === 'OpenSearch Serverless';
+
+          return isStatusAllowed && !isAOSSCollection;
+        },
+        getLabel: () => 'Create monitor',
+        getIcon: () => 'bell',
+        component: CreateMonitorFlyout,
+      });
     }
   }
 
