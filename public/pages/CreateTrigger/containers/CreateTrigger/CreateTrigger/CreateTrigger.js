@@ -156,10 +156,11 @@ export default class CreateTrigger extends Component {
         monitor?.query ||
         '';
 
-      // PPL endpoint doesn't need data source - it's a direct query execution
+      const dataSourceQuery = getDataSourceQueryObj();
       httpClient
         .post('../_plugins/_ppl', {
           body: JSON.stringify({ query: pplQuery }),
+          query: dataSourceQuery?.query,
         })
         .then((resp) => {
           if (resp.ok) {

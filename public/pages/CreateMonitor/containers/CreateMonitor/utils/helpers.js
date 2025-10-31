@@ -454,10 +454,12 @@ export const pplToV2Schedule = (values) => {
   const freq = values.frequency;
 
   if (freq === 'interval') {
+    // Convert unit to lowercase to match text field mapping in OpenSearch index
+    const unit = (values.period?.unit || 'MINUTES').toLowerCase();
     return {
       period: {
         interval: values.period?.interval === '' ? 1 : Number(values.period?.interval || 1),
-        unit: values.period?.unit || 'MINUTES',
+        unit: unit,
       },
     };
   }
@@ -492,7 +494,7 @@ export const pplToV2Schedule = (values) => {
   return {
     period: {
       interval: 1,
-      unit: 'MINUTES',
+      unit: 'minutes', // lowercase to match text field mapping
     },
   };
 };
@@ -752,11 +754,15 @@ export const findCommonDateFields = async (httpClient, indices, dataSourceId) =>
           const fullFieldName = prefix ? `${prefix}.${fieldName}` : fieldName;
           
           // Include field if:
-          // 1. It has type 'date', OR
-          // 2. The field name contains 'date' (case-insensitive)
+          // 1. Its type contains 'date' (catches date, date_nanos, date_range, etc.), OR
+          // 2. The field name contains 'date' or 'time' (case-insensitive)
+          const fieldType = (fieldDef.type || '').toLowerCase();
+          const fieldNameLower = fullFieldName.toLowerCase();
+          
           if (
-            fieldDef.type === 'date' || 
-            fullFieldName.toLowerCase().includes('date')
+            fieldType.includes('date') || 
+            fieldNameLower.includes('date') ||
+            fieldNameLower.includes('time')
           ) {
             dateFields.push(fullFieldName);
           }
@@ -804,9 +810,14 @@ export const findCommonDateFields = async (httpClient, indices, dataSourceId) =>
  * POST /_plugins/_ppl { query: "<PPL string>" }
  * Returns the raw PPL response. Callers can wrap it into an execute-like shape if needed.
  */
-export const runPPLPreview = async (httpClient, { queryText } = {}) => {
+export const runPPLPreview = async (httpClient, { queryText, dataSourceId } = {}) => {
+  const dataSourceQuery = getDataSourceQueryObj();
+  const query = { ...(dataSourceQuery?.query || {}) };
+  if (dataSourceId) query['dataSourceId'] = dataSourceId;
+
   const resp = await httpClient.post('../_plugins/_ppl', {
     body: JSON.stringify({ query: queryText || '' }),
+    query,
   });
   if (!resp.ok) throw resp.resp || resp;
   return resp.resp;

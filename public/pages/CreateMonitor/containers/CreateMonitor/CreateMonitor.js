@@ -487,16 +487,37 @@ class CreateMonitor extends Component {
       console.log('[componentDidMount] queryString service:', queryString);
       
       if (queryString) {
-        console.log('[componentDidMount] Setting query to empty PPL...');
+        console.log('[componentDidMount] Setting query to empty PPL with dataset...');
+        
+        // Get or create a default dataset for PPL queries
+        const getDefaultDataset = async () => {
+          try {
+            const dataViews = services?.data?.dataViews;
+            if (dataViews) {
+              const defaultDataView = await dataViews.getDefault();
+              if (defaultDataView) {
+                return dataViews.convertToDataset(defaultDataView);
+              }
+            }
+          } catch (err) {
+            console.error('[componentDidMount] Error getting default dataset:', err);
+          }
+          return undefined;
+        };
+        
+        const dataset = await getDefaultDataset();
+        console.log('[componentDidMount] Dataset:', dataset);
+        
         queryString.setQuery({
           query: '',
           language: 'ppl',
+          dataset: dataset,
         });
-        console.log('[componentDidMount] Query set successfully');
+        console.log('[componentDidMount] Query set successfully with dataset');
         
         // Verify it was set
         try {
-          const currentQuery = services?.data?.query?.queryString?.getQuery();
+          const currentQuery = queryString.getQuery();
           console.log('[componentDidMount] Current query after setting:', currentQuery);
         } catch (verifyErr) {
           console.error('[componentDidMount] Failed to verify query was set:', verifyErr);
@@ -586,14 +607,32 @@ class CreateMonitor extends Component {
           console.log('[componentDidUpdate] Current query:', currentQuery);
         } catch (e) {
           console.error('[componentDidUpdate] Error getting query (not set yet):', e);
-          // If query is not set, try to initialize it
+          // If query is not set, try to initialize it with dataset
           try {
             console.log('[componentDidUpdate] Attempting to initialize query service...');
-            queryString.setQuery({
-              query: '',
-              language: 'ppl',
-            });
-            console.log('[componentDidUpdate] Query initialized successfully');
+            
+            // Get default dataset asynchronously
+            (async () => {
+              let dataset = undefined;
+              try {
+                const dataViews = services?.data?.dataViews;
+                if (dataViews) {
+                  const defaultDataView = await dataViews.getDefault();
+                  if (defaultDataView) {
+                    dataset = dataViews.convertToDataset(defaultDataView);
+                  }
+                }
+              } catch (datasetErr) {
+                console.error('[componentDidUpdate] Error getting dataset:', datasetErr);
+              }
+              
+              queryString.setQuery({
+                query: '',
+                language: 'ppl',
+                dataset: dataset,
+              });
+              console.log('[componentDidUpdate] Query initialized successfully with dataset');
+            })();
           } catch (setErr) {
             console.error('[componentDidUpdate] Failed to initialize query:', setErr);
           }
@@ -916,7 +955,7 @@ class CreateMonitor extends Component {
                     size="s"
                     iconType={this.state.savedQueriesPopoverOpen ? 'arrowUp' : 'arrowDown'}
                     iconSide="right"
-                    onClick={() => {
+                    onClick={async () => {
                       console.log('[Saved Queries] Button clicked, current state:', this.state.savedQueriesPopoverOpen);
                       console.log('[Saved Queries] Context at click time:', this.context);
                       
@@ -931,13 +970,29 @@ class CreateMonitor extends Component {
                             const currentQuery = queryString.getQuery();
                             console.log('[Saved Queries] Current query already set:', currentQuery);
                           } catch (getErr) {
-                            // Query not set - initialize it
+                            // Query not set - initialize it with dataset
                             console.log('[Saved Queries] Query not set, initializing...');
+                            
+                            // Get default dataset
+                            let dataset = undefined;
+                            try {
+                              const dataViews = services?.data?.dataViews;
+                              if (dataViews) {
+                                const defaultDataView = await dataViews.getDefault();
+                                if (defaultDataView) {
+                                  dataset = dataViews.convertToDataset(defaultDataView);
+                                }
+                              }
+                            } catch (datasetErr) {
+                              console.error('[Saved Queries] Error getting dataset:', datasetErr);
+                            }
+                            
                             queryString.setQuery({
                               query: this.formikRef.current?.values?.pplQuery || '',
                               language: 'ppl',
+                              dataset: dataset,
                             });
-                            console.log('[Saved Queries] Query initialized before opening flyout');
+                            console.log('[Saved Queries] Query initialized before opening flyout with dataset:', dataset);
                           }
                         }
                       } catch (err) {
@@ -988,7 +1043,7 @@ class CreateMonitor extends Component {
           <EuiButton
             size="s"
             onClick={async () => {
-              const { httpClient } = this.props;
+              const { httpClient, landingDataSourceId } = this.props;
               this.setState({
                 previewLoading: true,
                 previewError: null,
@@ -999,6 +1054,7 @@ class CreateMonitor extends Component {
               try {
                 const data = await runPPLPreview(httpClient, {
                   queryText: values.pplQuery || '',
+                  dataSourceId: values.dataSourceId || landingDataSourceId,
                 });
                 this.setState({
                   previewResult: data,
