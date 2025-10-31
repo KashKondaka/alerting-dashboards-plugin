@@ -40,8 +40,32 @@ export const getInitialValues = ({
     (initialValue, queryValue) => (_.isEmpty(queryValue) ? initialValue : queryValue)
   );
 
-  // allow ?mode=ppl to deep-link into the new flow
+  // Check for query transfer from Explore via sessionStorage
   const params = queryString.parse(location.search);
+  const transferKey = params?.qkey;
+  if (transferKey && typeof transferKey === 'string') {
+    try {
+      const transferData = sessionStorage.getItem(transferKey);
+      if (transferData) {
+        const parsed = JSON.parse(transferData);
+        console.log('[getInitialValues] Loaded query from sessionStorage (length:', parsed.query?.length, ')');
+        if (parsed.query) {
+          initialValues.pplQuery = parsed.query;
+          initialValues.monitor_mode = 'ppl';
+          initialValues.searchType = 'query';
+        }
+        if (parsed.dataSourceId) {
+          initialValues.dataSourceId = parsed.dataSourceId;
+        }
+        // Clean up after reading
+        sessionStorage.removeItem(transferKey);
+      }
+    } catch (err) {
+      console.error('[getInitialValues] Failed to load query from sessionStorage:', err);
+    }
+  }
+
+  // allow ?mode=ppl to deep-link into the new flow
   if (params?.mode === 'ppl') {
     initialValues.monitor_mode = 'ppl';
     initialValues.searchType = 'query'; // keep legacy UIs happy
@@ -70,41 +94,64 @@ export const getInitialValues = ({
     // Extract query from embeddable if available
     try {
       console.log('[getInitialValues] Attempting to extract query from embeddable...');
+      console.log('[getInitialValues] Full embeddable structure:', JSON.stringify(embeddable, null, 2));
+      
       const searchSource = embeddable?.vis?.data?.searchSource;
       console.log('[getInitialValues] searchSource:', searchSource);
       
+      let extractedQuery = null;
+      
       if (searchSource) {
         const serialized = searchSource.getSerializedFields?.();
-        console.log('[getInitialValues] Serialized search source:', serialized);
+        console.log('[getInitialValues] Serialized search source:', JSON.stringify(serialized, null, 2));
         
         const query = serialized?.query || searchSource.getField?.('query');
-        console.log('[getInitialValues] Extracted query:', query);
+        console.log('[getInitialValues] Query from searchSource:', JSON.stringify(query, null, 2));
         
-        if (query) {
-          // Check if it's a PPL query
-          if (query.language === 'PPL' || query.language === 'ppl') {
-            console.log('[getInitialValues] PPL query detected:', query.query);
-            initialValues.monitor_mode = 'ppl';
-            initialValues.searchType = 'query';
-            initialValues.pplQuery = query.query || '';
-          } else {
-            // Log other query types for debugging
-            console.log('[getInitialValues] Non-PPL query detected:', query.language, query);
-          }
+        if (query && (query.language === 'PPL' || query.language === 'ppl')) {
+          extractedQuery = query.query || query.queryString || '';
+          console.log('[getInitialValues] PPL query extracted from searchSource (length: ' + extractedQuery.length + '):', extractedQuery);
         }
       }
       
       // Also check if embeddable has query directly
       const embQuery = embeddable?.vis?.data?.query;
-      console.log('[getInitialValues] embeddable.vis.data.query:', embQuery);
+      console.log('[getInitialValues] embeddable.vis.data.query:', JSON.stringify(embQuery, null, 2));
       if (embQuery && (embQuery.language === 'PPL' || embQuery.language === 'ppl')) {
-        console.log('[getInitialValues] Found PPL query in embeddable.vis.data.query:', embQuery.query);
+        const embQueryStr = embQuery.query || embQuery.queryString || '';
+        console.log('[getInitialValues] PPL query found in embeddable.vis.data.query (length: ' + embQueryStr.length + '):', embQueryStr);
+        // Use this if we haven't found one yet, or if it's longer (more complete)
+        if (!extractedQuery || embQueryStr.length > extractedQuery.length) {
+          extractedQuery = embQueryStr;
+        }
+      }
+      
+      // Check vis.params for stored query
+      const visParams = embeddable?.vis?.params;
+      console.log('[getInitialValues] embeddable.vis.params:', JSON.stringify(visParams, null, 2));
+      if (visParams?.query) {
+        console.log('[getInitialValues] Query in vis.params:', visParams.query);
+        if (typeof visParams.query === 'string' && visParams.query.length > 0) {
+          if (!extractedQuery || visParams.query.length > extractedQuery.length) {
+            extractedQuery = visParams.query;
+            console.log('[getInitialValues] Using query from vis.params (length: ' + extractedQuery.length + ')');
+          }
+        }
+      }
+      
+      // If we found a PPL query, use it
+      if (extractedQuery && extractedQuery.trim().length > 0) {
+        console.log('[getInitialValues] Final extracted query (length: ' + extractedQuery.length + '):', extractedQuery);
+        console.log('[getInitialValues] Query line count:', extractedQuery.split('\n').length);
         initialValues.monitor_mode = 'ppl';
         initialValues.searchType = 'query';
-        initialValues.pplQuery = embQuery.query || '';
+        initialValues.pplQuery = extractedQuery;
+      } else {
+        console.warn('[getInitialValues] No PPL query found in embeddable');
       }
     } catch (err) {
       console.error('[getInitialValues] Error extracting query from embeddable:', err);
+      console.error('[getInitialValues] Error stack:', err.stack);
     }
 
     if (searchType) {

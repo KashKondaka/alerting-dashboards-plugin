@@ -270,12 +270,20 @@ export class AlertingPlugin implements Plugin<void, AlertingStart, AlertingSetup
         const query = deps.query?.query ?? '';
         const dataSourceId = deps.query?.dataset?.dataSource?.id;
         
-        // Build URL with both query and data source ID
+        console.log('[Explore Action] Transporting query (length:', query.length, ', lines:', query.split('\n').length, ')');
+        console.log('[Explore Action] Full query:', query);
+        
+        // Store query in sessionStorage to avoid URL length/encoding issues
+        const transferKey = `alerting_query_transfer_${Date.now()}`;
+        sessionStorage.setItem(transferKey, JSON.stringify({
+          query,
+          dataSourceId,
+          timestamp: Date.now(),
+        }));
+        
+        // Pass only the transfer key in URL
         const urlParams = new URLSearchParams();
-        urlParams.set('ppl', query);
-        if (dataSourceId) {
-          urlParams.set('dataSourceId', dataSourceId);
-        }
+        urlParams.set('qkey', transferKey);
         
         navigateToAppRef?.(MONITORS_NAV_ID, {
           path: `#/create-monitor?${urlParams.toString()}`
