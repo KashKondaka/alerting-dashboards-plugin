@@ -189,11 +189,10 @@ class ConfigureTriggers extends React.Component {
         monitor?.query ||
         '';
 
-      const dataSourceQuery = getDataSourceQueryObj();
+      // PPL endpoint doesn't need data source - it's a direct query execution
       httpClient
         .post('../_plugins/_ppl', {
           body: JSON.stringify({ query: pplQuery }),
-          query: dataSourceQuery?.query,
         })
         .then((resp) => {
           if (resp.ok) {

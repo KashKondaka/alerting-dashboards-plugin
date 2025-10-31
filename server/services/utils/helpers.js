@@ -40,7 +40,8 @@ export function createValidateQuerySchema(dataSourceEnabled, fields = {}) {
   const schemaObj = { ...fields };
 
   if (dataSourceEnabled) {
-    schemaObj['dataSourceId'] = schema.string();
+    // Make dataSourceId optional - it's not always required (e.g., for PPL preview on local cluster)
+    schemaObj['dataSourceId'] = schema.maybe(schema.string());
   }
   return schema.object(schemaObj);
 }

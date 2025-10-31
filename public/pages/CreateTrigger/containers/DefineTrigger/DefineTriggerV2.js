@@ -307,11 +307,10 @@ class DefineTrigger extends Component {
       const tsField = pickTimestampFieldFromQuery(basePpl);
       const histogramQuery = buildHistogramPpl(basePpl, tsField);
 
-      const dataSourceQuery = getDataSourceQueryObj();
+      // PPL endpoint doesn't need data source - it's a direct query execution
       httpClient
         .post('../_plugins/_ppl', {
           body: JSON.stringify({ query: histogramQuery }),
-          query: dataSourceQuery?.query,
         })
         .then((resp) => {
           if (resp.ok) {
