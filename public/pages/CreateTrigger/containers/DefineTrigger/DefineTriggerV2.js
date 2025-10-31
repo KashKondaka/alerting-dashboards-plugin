@@ -138,13 +138,20 @@ const parsePplHistogram = (pplResp) => {
       .sort((a, b) => a.key - b.key);
   }
 
-  // Compute total: either explicit "total" or sum of buckets
-  const total =
-    Number(pplResp?.total) ||
-    buckets.reduce((acc, b) => acc + (Number.isFinite(b.doc_count) ? b.doc_count : 0), 0) ||
-    0;
+  // Compute total: either explicit "total" field, sum of buckets, or row count
+  let total = Number(pplResp?.total);
+  
+  if (!total && buckets.length > 0) {
+    // Sum up the buckets if we have histogram data
+    total = buckets.reduce((acc, b) => acc + (Number.isFinite(b.doc_count) ? b.doc_count : 0), 0);
+  }
+  
+  if (!total && rows.length > 0) {
+    // For non-histogram queries, use the number of rows returned
+    total = rows.length;
+  }
 
-  return { buckets, total };
+  return { buckets, total: total || 0 };
 };
 
 // If we couldn't get buckets, synthesize a flat 24h series (so the graph never shows empty state)
@@ -160,7 +167,7 @@ const synthesizeFlat1h = (points = 12, value = 0) => {
 
 // Convert parsed buckets into the VisualGraph-friendly response
 const toGraphResponse = ({ buckets, total }) => ({
-  hits: { total: { value: Math.max(1, Number(total) || 0), relation: 'eq' } },
+  hits: { total: { value: Number(total) || 0, relation: 'eq' } },  // Removed Math.max(1, ...) to show accurate counts
   aggregations: {
     // support multiple common names so downstreams are happy
     ppl_histogram: { buckets },

@@ -70,7 +70,7 @@ const TriggerGraphV2 = ({
 
   // Normalize into a VisualGraph-friendly shape:
   const graphResponse = {
-    hits: { total: { value: Math.max(1, Number(total) || 0), relation: 'eq' } },
+    hits: { total: { value: Number(total) || 0, relation: 'eq' } },  // Removed Math.max(1, ...) to show accurate counts
     aggregations: {
       count_over_time: { buckets },
       combined_value: { buckets },
