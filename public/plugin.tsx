@@ -32,9 +32,10 @@ import { BehaviorSubject } from 'rxjs';
 import { dataSourceObservable } from './pages/utils/constants';
 import { ContentManagementPluginStart } from '../../../src/plugins/content_management/public';
 import { registerAlertsCard } from './utils/helpers';
-import type { ExplorePluginSetup } from '../../../src/plugins/explore/public';
+import type { ExplorePluginSetup, ExplorePluginStart } from '../../../src/plugins/explore/public';
 import { ResultStatus } from '../../../src/plugins/data/public';
 import { CreateMonitorFlyout } from './components/CreateMonitorFlyout';
+import { registerExploreDependencies } from './dependencies/register_explore_dependencies';
 
 declare module '../../../src/plugins/ui_actions/public' {
   export interface ActionContextMapping {
@@ -64,6 +65,7 @@ export interface AlertingStartDeps {
   navigation: NavigationPublicPluginStart;
   contentManagement: ContentManagementPluginStart;
   assistantDashboards?: AssistantPublicPluginStart;
+  explore?: ExplorePluginStart;
 }
 
 export class AlertingPlugin implements Plugin<void, AlertingStart, AlertingSetupDeps, AlertingStartDeps> {
@@ -273,7 +275,7 @@ export class AlertingPlugin implements Plugin<void, AlertingStart, AlertingSetup
     }
   }
 
-  public start(core: CoreStart, { visAugmenter, embeddable, data, navigation, contentManagement, assistantDashboards }: AlertingStartDeps): AlertingStart {
+  public start(core: CoreStart, { visAugmenter, embeddable, data, navigation, contentManagement, assistantDashboards, explore }: AlertingStartDeps): AlertingStart {
     navigateToAppRef = core.application.navigateToApp;
     setEmbeddable(embeddable);
     setOverlays(core.overlays);
@@ -286,6 +288,10 @@ export class AlertingPlugin implements Plugin<void, AlertingStart, AlertingSetup
     setContentManagementStart(contentManagement);
     registerAlertsCard();
     setAssistantClient(assistantDashboards?.assistantClient || {agentConfigExists: (agentConfigName: string | string[], options?: string) => {return Promise.resolve({ exists: false });}})
+
+    // Register explore dependencies if available
+    registerExploreDependencies(explore);
+
     return {};
   }
 }

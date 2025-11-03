@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   EuiFlyout,
   EuiFlyoutHeader,
@@ -25,20 +25,16 @@ import { formikToMonitor } from '../../pages/CreateMonitor/containers/CreateMoni
 import { getClient } from '../../services';
 import { backendErrorNotification } from '../../utils/helpers';
 import { MONITOR_TYPE, SEARCH_TYPE } from '../../utils/constants';
+import { getQueryTransformer } from '../../dependencies/register_explore_dependencies';
 
 // Import type from explore plugin
 // Note: This assumes the explore plugin exports this type
 type FlyoutComponentProps = {
   closeFlyout: () => void;
   dependencies: {
-    executedQuery: any;
-    editorQuery: string;
-    language: string;
+    query: any; // QueryWithQueryAsString - includes query string, language, and dataset
     resultStatus: any;
-    dataset?: any;
-    datasetType?: string;
-    selectedRecords?: any[];
-    timeRange?: any;
+    queryInEditor: string;
   };
   services: any;
 };
@@ -51,20 +47,33 @@ export const CreateMonitorFlyout: React.FC<FlyoutComponentProps> = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
+  // Transform queryInEditor into executable query with source clause
+  // Use the query transformer registered from explore plugin (or fallback)
+  const executableQuery = useMemo(() => {
+    const transformer = getQueryTransformer();
+    return transformer({
+      query: dependencies.queryInEditor,
+      language: dependencies.query.language,
+      dataset: dependencies.query.dataset,
+    });
+  }, [dependencies.queryInEditor, dependencies.query.language, dependencies.query.dataset]);
+    
   // Build initial values from dependencies
   const initialValues = {
     ..._.cloneDeep(FORMIK_INITIAL_VALUES),
-    // Pre-fill PPL query from editor
-    pplQuery: dependencies.editorQuery || '',
+    // Pre-fill PPL query from editor (transformed with source clause)
+    pplQuery: executableQuery.query || '',
     monitor_mode: 'ppl',
     searchType: SEARCH_TYPE.QUERY,
     monitor_type: MONITOR_TYPE.QUERY_LEVEL,
     // Pre-fill data source if available
-    dataSourceId: dependencies.dataset?.dataSource?.id || '',
+    dataSourceId: dependencies.query.dataset?.dataSource?.id || '',
     // Set a default name
     name: `Monitor from Explore ${new Date().toISOString().slice(0, 19)}`,
     // Set default index from dataset
-    index: dependencies.dataset?.title ? [{ label: dependencies.dataset.title }] : [],
+    index: dependencies.query.dataset?.title
+      ? [{ label: dependencies.query.dataset.title }]
+      : [],
   };
 
   const handleSubmit = async (values: any) => {
@@ -205,7 +214,7 @@ export const CreateMonitorFlyout: React.FC<FlyoutComponentProps> = ({
               <EuiSpacer />
 
               {/* Dataset Info */}
-              {dependencies.dataset && (
+              {dependencies.query.dataset && (
                 <>
                   <EuiText>
                     <h3>Dataset</h3>
@@ -213,11 +222,11 @@ export const CreateMonitorFlyout: React.FC<FlyoutComponentProps> = ({
                   <EuiSpacer size="s" />
                   <EuiText size="s">
                     <p>
-                      <strong>Index:</strong> {dependencies.dataset.title}
+                      <strong>Index:</strong> {dependencies.query.dataset.title}
                     </p>
-                    {dependencies.datasetType && (
+                    {dependencies.query.dataset.signalType && (
                       <p>
-                        <strong>Type:</strong> {dependencies.datasetType}
+                        <strong>Type:</strong> {dependencies.query.dataset.signalType}
                       </p>
                     )}
                   </EuiText>
