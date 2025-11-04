@@ -25,7 +25,6 @@ import { formikToMonitor } from '../../pages/CreateMonitor/containers/CreateMoni
 import { getClient } from '../../services';
 import { backendErrorNotification } from '../../utils/helpers';
 import { MONITOR_TYPE, SEARCH_TYPE } from '../../utils/constants';
-import { getQueryTransformer } from '../../dependencies/register_explore_dependencies';
 
 // Import type from explore plugin
 // Note: This assumes the explore plugin exports this type
@@ -34,7 +33,7 @@ type FlyoutComponentProps = {
   dependencies: {
     query: any; // QueryWithQueryAsString - includes query string, language, and dataset
     resultStatus: any;
-    queryInEditor: string;
+    queryInEditor: string; // Already transformed with source clause by explore plugin
   };
   services: any;
 };
@@ -47,22 +46,11 @@ export const CreateMonitorFlyout: React.FC<FlyoutComponentProps> = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
-  // Transform queryInEditor into executable query with source clause
-  // Use the query transformer registered from explore plugin (or fallback)
-  const executableQuery = useMemo(() => {
-    const transformer = getQueryTransformer();
-    return transformer({
-      query: dependencies.queryInEditor,
-      language: dependencies.query.language,
-      dataset: dependencies.query.dataset,
-    });
-  }, [dependencies.queryInEditor, dependencies.query.language, dependencies.query.dataset]);
-    
   // Build initial values from dependencies
   const initialValues = {
     ..._.cloneDeep(FORMIK_INITIAL_VALUES),
-    // Pre-fill PPL query from editor (transformed with source clause)
-    pplQuery: executableQuery.query || '',
+    // Pre-fill PPL query from editor (already has source clause added by explore plugin)
+    pplQuery: dependencies.queryInEditor || '',
     monitor_mode: 'ppl',
     searchType: SEARCH_TYPE.QUERY,
     monitor_type: MONITOR_TYPE.QUERY_LEVEL,

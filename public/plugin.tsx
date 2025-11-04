@@ -35,7 +35,6 @@ import { registerAlertsCard } from './utils/helpers';
 import type { ExplorePluginSetup, ExplorePluginStart } from '../../../src/plugins/explore/public';
 import { ResultStatus } from '../../../src/plugins/data/public';
 import { CreateMonitorFlyout } from './components/CreateMonitorFlyout';
-import { registerExploreDependencies } from './dependencies/register_explore_dependencies';
 
 declare module '../../../src/plugins/ui_actions/public' {
   export interface ActionContextMapping {
@@ -288,9 +287,6 @@ export class AlertingPlugin implements Plugin<void, AlertingStart, AlertingSetup
     setContentManagementStart(contentManagement);
     registerAlertsCard();
     setAssistantClient(assistantDashboards?.assistantClient || {agentConfigExists: (agentConfigName: string | string[], options?: string) => {return Promise.resolve({ exists: false });}})
-
-    // Register explore dependencies if available
-    registerExploreDependencies(explore);
 
     return {};
   }
