@@ -753,16 +753,10 @@ export const findCommonDateFields = async (httpClient, indices, dataSourceId) =>
         for (const [fieldName, fieldDef] of Object.entries(props)) {
           const fullFieldName = prefix ? `${prefix}.${fieldName}` : fieldName;
           
-          // Include field if:
-          // 1. Its type contains 'date' (catches date, date_nanos, date_range, etc.), OR
-          // 2. The field name contains 'date' (case-insensitive)
+          // Include field only if its type is exactly "date" or "date_nanos"
           const fieldType = (fieldDef.type || '').toLowerCase();
-          const fieldNameLower = fullFieldName.toLowerCase();
           
-          if (
-            fieldType.includes('date') || 
-            fieldNameLower.includes('date')
-          ) {
+          if (fieldType === 'date' || fieldType === 'date_nanos') {
             dateFields.push(fullFieldName);
           }
           
