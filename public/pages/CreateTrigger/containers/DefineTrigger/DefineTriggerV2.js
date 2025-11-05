@@ -313,7 +313,7 @@ class DefineTrigger extends Component {
 
       const dataSourceQuery = getDataSourceQueryObj();
       httpClient
-        .post('../_plugins/_ppl', {
+        .post('/_plugins/_ppl', {
           body: JSON.stringify({ query: histogramQuery }),
           query: dataSourceQuery?.query,
         })
@@ -375,7 +375,7 @@ class DefineTrigger extends Component {
 
     const dataSourceQuery = getDataSourceQueryObj();
     this.props.httpClient
-      .post('../api/alerting/monitors/_execute', {
+      .post('/api/alerting/monitors/_execute', {
         body: JSON.stringify(monitorToExecute),
         query: dataSourceQuery?.query,
       })

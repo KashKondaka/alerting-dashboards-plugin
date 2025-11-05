@@ -191,7 +191,7 @@ class ConfigureTriggers extends React.Component {
 
       const dataSourceQuery = getDataSourceQueryObj();
       httpClient
-        .post('../_plugins/_ppl', {
+        .post('/_plugins/_ppl', {
           body: JSON.stringify({ query: pplQuery }),
           query: dataSourceQuery?.query,
         })
@@ -238,7 +238,7 @@ class ConfigureTriggers extends React.Component {
 
     const dataSourceQuery = getDataSourceQueryObj();
     httpClient
-      .post('../api/alerting/monitors/_execute', {
+      .post('/api/alerting/monitors/_execute', {
         body: JSON.stringify(monitorToExecute),
         query: dataSourceQuery?.query,
       })
@@ -262,7 +262,7 @@ class ConfigureTriggers extends React.Component {
 
     try {
       const dataSourceQuery = getDataSourceQueryObj();
-      const response = await this.props.httpClient.post('../api/alerting/_mappings', {
+      const response = await this.props.httpClient.post('/api/alerting/_mappings', {
         body: JSON.stringify({ index }),
         query: dataSourceQuery?.query,
       });

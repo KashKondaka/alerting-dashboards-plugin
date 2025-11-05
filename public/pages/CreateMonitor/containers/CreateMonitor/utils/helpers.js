@@ -212,7 +212,7 @@ const getMetricAgg = (embeddable) => {
 export const getPlugins = async (httpClient) => {
   try {
     const dataSourceQuery = getDataSourceQueryObj();
-    const pluginsResponse = await httpClient.get('../api/alerting/_plugins', dataSourceQuery);
+    const pluginsResponse = await httpClient.get('/api/alerting/_plugins', dataSourceQuery);
     if (pluginsResponse.ok) {
       return pluginsResponse.resp.map((plugin) => plugin.component);
     } else {
@@ -301,7 +301,7 @@ export const create = async ({
     const isWorkflow = monitor.workflow_type === MONITOR_TYPE.COMPOSITE_LEVEL;
     const creationPool = isWorkflow ? 'workflows' : 'monitors';
     const dataSourceQuery = getDataSourceQueryObj();
-    const resp = await httpClient.post(`../api/alerting/${creationPool}`, {
+    const resp = await httpClient.post(`/api/alerting/${creationPool}`, {
       body: JSON.stringify(monitor),
       query: dataSourceQuery?.query,
     });
@@ -388,7 +388,7 @@ export const submit = ({
  * (Preview is handled via /_plugins/_ppl; only create/update live here.)
  */
 export const makeAlertingV2Service = (httpClient) => {
-  const base = '../api/alerting/v2';
+  const base = '/api/alerting/v2';
 
   const withDataSource = () => {
     const ds = getDataSourceQueryObj();
@@ -454,8 +454,8 @@ export const pplToV2Schedule = (values) => {
   const freq = values.frequency;
 
   if (freq === 'interval') {
-    // Convert unit to lowercase to match text field mapping in OpenSearch index
-    const unit = (values.period?.unit || 'MINUTES').toLowerCase();
+    // Keep unit uppercase to match API spec: MINUTES | HOURS | DAYS
+    const unit = (values.period?.unit || 'MINUTES').toUpperCase();
     return {
       period: {
         interval: values.period?.interval === '' ? 1 : Number(values.period?.interval || 1),
@@ -494,7 +494,7 @@ export const pplToV2Schedule = (values) => {
   return {
     period: {
       interval: 1,
-      unit: 'minutes', // lowercase to match text field mapping
+      unit: 'MINUTES', // uppercase to match API spec
     },
   };
 };
@@ -729,7 +729,7 @@ export const findCommonDateFields = async (httpClient, indices, dataSourceId) =>
     const query = { ...(dataSourceQuery?.query || {}) };
     if (dataSourceId) query['dataSourceId'] = dataSourceId;
 
-    const resp = await httpClient.post('../api/alerting/_mappings', {
+    const resp = await httpClient.post('/api/alerting/_mappings', {
       body: JSON.stringify({ index: indices }),
       query,
     });
@@ -814,7 +814,7 @@ export const runPPLPreview = async (httpClient, { queryText, dataSourceId } = {}
   const query = { ...(dataSourceQuery?.query || {}) };
   if (dataSourceId) query['dataSourceId'] = dataSourceId;
 
-  const resp = await httpClient.post('../_plugins/_ppl', {
+  const resp = await httpClient.post('/_plugins/_ppl', {
     body: JSON.stringify({ query: queryText || '' }),
     query,
   });
