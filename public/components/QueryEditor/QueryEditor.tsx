@@ -24,6 +24,7 @@ interface QueryEditorProps {
   placeholder?: string;
   indexPatternId?: string;
   indices?: string[];
+  autoExpand?: boolean; // Enable auto-expanding height based on content
 }
 
 export const QueryEditor: React.FC<QueryEditorProps> = ({
@@ -35,6 +36,7 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({
   placeholder,
   indexPatternId,
   indices = [],
+  autoExpand = false,
 }) => {
   const dispatch = useDispatch();
   const queryLanguage = useSelector(selectQueryLanguage);
@@ -47,6 +49,7 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({
   const indicesRef = useRef(indices);
   const indexPatternIdRef = useRef(indexPatternId);
   const servicesRef = useRef(services);
+  const [editorHeight, setEditorHeight] = React.useState(height);
 
   useEffect(() => { onChangeRef.current = onChange; }, [onChange]);
   useEffect(() => { indicesRef.current = indices; }, [indices]);
@@ -315,6 +318,20 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({
     
     editorRef.current = editor;
 
+    // Auto-adjust height based on content (only if autoExpand is enabled)
+    const updateHeight = () => {
+      if (!autoExpand) return;
+      const contentHeight = Math.min(Math.max(editor.getContentHeight(), 60), 400);
+      if (contentHeight !== editorHeight) {
+        setEditorHeight(contentHeight);
+      }
+    };
+
+    // Initial height calculation (only if autoExpand is enabled)
+    if (autoExpand) {
+      setTimeout(updateHeight, 100);
+    }
+
     // Register completion provider
     providerRef.current = monaco.languages.registerCompletionItemProvider(
       queryLanguage,
@@ -328,6 +345,11 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({
       
       if (!isQueryEditorDirty) {
         dispatch(setIsQueryEditorDirty(true));
+      }
+      
+      // Update height when content changes (only if autoExpand is enabled)
+      if (autoExpand) {
+        updateHeight();
       }
       
       // Trigger suggestions after change
@@ -367,12 +389,22 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({
     ]);
 
     if (selection) editor.setSelection(selection);
-  }, [value]);
+    
+    // Update height when value changes externally (only if autoExpand is enabled)
+    if (autoExpand) {
+      setTimeout(() => {
+        const contentHeight = Math.min(Math.max(editor.getContentHeight(), 60), 400);
+        if (contentHeight !== editorHeight) {
+          setEditorHeight(contentHeight);
+        }
+      }, 50);
+    }
+  }, [value, editorHeight, autoExpand]);
 
   return (
     <div
       ref={rootRef}
-      style={{ width: '100%', height, border: '1px solid #d3dae6', borderRadius: 6 }}
+      style={{ width: '100%', height: editorHeight, border: '1px solid #d3dae6', borderRadius: 6 }}
       data-test-subj="queryEditor"
     />
   );

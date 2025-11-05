@@ -39,7 +39,7 @@ import { Provider } from 'react-redux';
 import _ from 'lodash';
 import { FORMIK_INITIAL_VALUES } from '../../pages/CreateMonitor/containers/CreateMonitor/utils/constants';
 import { formikToMonitor } from '../../pages/CreateMonitor/containers/CreateMonitor/utils/formikToMonitor';
-import { getClient, setDataSource } from '../../services';
+import { getClient, setDataSource, NotificationService } from '../../services';
 import { backendErrorNotification } from '../../utils/helpers';
 import { MONITOR_TYPE, SEARCH_TYPE } from '../../utils/constants';
 import CustomSteps from '../../pages/CreateMonitor/components/CustomSteps';
@@ -53,6 +53,8 @@ import {
   extractIndicesFromPPL,
   findCommonDateFields,
   getPlugins,
+  makeAlertingV2Service,
+  buildPPLMonitorFromFormik,
 } from '../../pages/CreateMonitor/containers/CreateMonitor/utils/helpers';
 import { CoreContext } from '../../utils/CoreContext';
 import { getAlertingStore } from '../../redux/store';
@@ -90,6 +92,7 @@ export class CreateMonitorFlyout extends Component<FlyoutComponentProps, CreateM
   formikRef = React.createRef<any>();
   debouncedDetectTimestampFields: any;
   store: any;
+  notificationService: any;
 
   constructor(props: FlyoutComponentProps) {
     super(props);
@@ -113,6 +116,10 @@ export class CreateMonitorFlyout extends Component<FlyoutComponentProps, CreateM
 
     // Initialize Redux store for QueryEditor
     this.store = getAlertingStore();
+
+    // Initialize NotificationService for ConfigureTriggers/ConfigureActions
+    const httpClient = getClient();
+    this.notificationService = new NotificationService(httpClient);
 
     // Debounced timestamp field detection
     this.debouncedDetectTimestampFields = _.debounce((pplQuery: string) => {
@@ -345,26 +352,72 @@ export class CreateMonitorFlyout extends Component<FlyoutComponentProps, CreateM
   };
 
   handleSubmit = async (values: any, formikBag: any) => {
-    const { services, closeFlyout } = this.props;
+    const { services, closeFlyout, dependencies } = this.props;
+    
+    console.log('[CreateMonitorFlyout] handleSubmit called');
+    console.log('[CreateMonitorFlyout] services:', services);
+    console.log('[CreateMonitorFlyout] services.notifications:', services?.notifications);
+    console.log('[CreateMonitorFlyout] services.notifications.toasts:', services?.notifications?.toasts);
+    
     this.setState({ isSubmitting: true, submitError: null });
 
     try {
       const httpClient = getClient();
-      await submitPPL({
-        values,
-        formikBag,
-        edit: false,
-        monitorToEdit: null,
-        history: null,
-        notifications: services.notifications,
-        httpClient,
-        dataSourceId: values.dataSourceId || this.props.dependencies.query.dataset?.dataSource?.id,
-      });
+      const api = makeAlertingV2Service(httpClient);
+      const body = buildPPLMonitorFromFormik(values);
+      const dataSourceId = values.dataSourceId || dependencies.query.dataset?.dataSource?.id;
 
+      console.log('[CreateMonitorFlyout] Calling createMonitor API...');
+      
+      // Create the monitor and capture the response to get the monitor ID
+      const response = await api.createMonitor(body, { dataSourceId });
+      
+      console.log('[CreateMonitorFlyout] Monitor created successfully');
+      console.log('[CreateMonitorFlyout] Response:', response);
+      
+      formikBag.setSubmitting(false);
+
+      // Extract monitor ID from response
+      const monitorId = response?._id || response?.monitor_id || response?.id;
+      
+      console.log('[CreateMonitorFlyout] Monitor ID:', monitorId);
+
+      // Build the monitors list page URL by replacing /app/explore with /app/monitors
+      const currentUrl = window.location.href;
+      const monitorsListUrl = currentUrl
+        .replace(/\/app\/explore.*$/, `/app/monitors#/monitors?dataSourceId=${dataSourceId || ''}&from=0&search=&size=20&sortDirection=desc&sortField=name&state=all`);
+
+      console.log('[CreateMonitorFlyout] Current URL:', currentUrl);
+      console.log('[CreateMonitorFlyout] Monitors list URL:', monitorsListUrl);
+
+      // Show success toast with clickable link to monitors list
+      console.log('[CreateMonitorFlyout] About to show success toast...');
+      
       services.notifications.toasts.addSuccess({
         title: 'Monitor created successfully',
-        text: `Monitor "${values.name}" has been created.`,
+        text: (
+          <p>
+            <a
+              href={monitorsListUrl}
+              style={{ textDecoration: 'underline', fontWeight: 'bold' }}
+              onClick={(e) => {
+                e.preventDefault();
+                window.location.href = monitorsListUrl;
+              }}
+            >
+              View here
+            </a>
+          </p>
+        ),
+        toastLifeTimeMs: 10000,
       });
+      console.log('[CreateMonitorFlyout] Success toast with link shown');
+
+      // IMPORTANT: Wait before closing to ensure toasts are registered in the DOM
+      console.log('[CreateMonitorFlyout] Waiting before closing flyout...');
+      await new Promise(resolve => setTimeout(resolve, 300));
+      
+      console.log('[CreateMonitorFlyout] Closing flyout');
       closeFlyout();
     } catch (error: any) {
       console.error('Error creating monitor:', error);
@@ -395,6 +448,8 @@ export class CreateMonitorFlyout extends Component<FlyoutComponentProps, CreateM
         title: 'Failed to create monitor',
         text: userMessage,
       });
+      
+      formikBag.setSubmitting(false);
     } finally {
       this.setState({ isSubmitting: false });
     }
@@ -486,6 +541,8 @@ export class CreateMonitorFlyout extends Component<FlyoutComponentProps, CreateM
             }}
             placeholder="Describe the monitor"
             fullWidth
+            rows={1}
+            resize="vertical"
           />
           {values.description && (
             <EuiText size="xs" color="subdued" style={{ marginTop: '4px' }}>
@@ -671,8 +728,9 @@ export class CreateMonitorFlyout extends Component<FlyoutComponentProps, CreateM
             }
           }}
           services={this.props.services}
-          height={220}
+          height={80}
           indices={this.state.indices}
+          autoExpand={true}
         />
         {values.pplQuery && (
           <EuiText size="xs" color="subdued" style={{ marginTop: '4px' }}>
@@ -1006,7 +1064,7 @@ export class CreateMonitorFlyout extends Component<FlyoutComponentProps, CreateM
                                   isDarkMode={false}
                                   httpClient={getClient()}
                                   notifications={services.notifications}
-                                  notificationService={services.notifications}
+                                  notificationService={this.notificationService}
                                   plugins={plugins}
                                   pluginsLoading={pluginsLoading}
                                 />
