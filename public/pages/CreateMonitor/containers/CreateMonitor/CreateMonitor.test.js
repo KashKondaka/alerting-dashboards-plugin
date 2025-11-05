@@ -257,9 +257,9 @@ describe('CreateMonitor', () => {
       );
       wrapper.instance().onSubmit(FORMIK_INITIAL_VALUES, formikBag);
       expect(httpClientMock.post).toHaveBeenCalledTimes(1);
-      // Now defaults to v2/PPL API
+      // Now defaults to v2/PPL API with absolute path
       const callArgs = httpClientMock.post.mock.calls[0];
-      expect(callArgs[0]).toBe('../api/alerting/v2/monitors');
+      expect(callArgs[0]).toBe('/api/alerting/v2/monitors');
       expect(callArgs[1]).toMatchObject({ query: {} });
       expect(callArgs[1].body).toContain('ppl_monitor');
     });
