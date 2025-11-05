@@ -368,10 +368,33 @@ export class CreateMonitorFlyout extends Component<FlyoutComponentProps, CreateM
       closeFlyout();
     } catch (error: any) {
       console.error('Error creating monitor:', error);
-      this.setState({
-        submitError: error.message || 'An error occurred while creating the monitor',
+      
+      // Parse error message to provide user-friendly feedback
+      let userMessage = 'An error occurred while creating the monitor';
+      let errorDetails = error?.message || error?.body?.message || '';
+
+      // Check for common error patterns and provide helpful messages
+      if (errorDetails.includes('duplicate') || errorDetails.includes('already exists')) {
+        userMessage = 'A monitor with this name already exists. Please choose a different name.';
+      } else if (errorDetails.includes('too long') || errorDetails.includes('length')) {
+        userMessage = 'Monitor name or description is too long. Please shorten it.';
+      } else if (errorDetails.includes('invalid query') || errorDetails.includes('query syntax')) {
+        userMessage = 'The PPL query syntax is invalid. Please check your query.';
+      } else if (errorDetails.includes('index') && errorDetails.includes('not found')) {
+        userMessage = 'The specified index does not exist. Please check your query.';
+      } else if (errorDetails.includes('permission') || errorDetails.includes('unauthorized')) {
+        userMessage = 'You do not have permission to create monitors.';
+      } else if (errorDetails) {
+        userMessage = errorDetails;
+      }
+
+      this.setState({ submitError: userMessage });
+
+      // Show toast notification
+      services.notifications.toasts.addDanger({
+        title: 'Failed to create monitor',
+        text: userMessage,
       });
-      backendErrorNotification(services.notifications, 'create', 'monitor', error);
     } finally {
       this.setState({ isSubmitting: false });
     }
@@ -380,12 +403,32 @@ export class CreateMonitorFlyout extends Component<FlyoutComponentProps, CreateM
   validateForm = (values: any) => {
     const errors: any = {};
 
+    // Validate monitor name
     if (!values.name || values.name.trim() === '') {
       errors.name = 'Monitor name is required';
+    } else if (values.name.length > 256) {
+      errors.name = 'Monitor name must be 256 characters or less';
     }
 
+    // Validate PPL query
     if (!values.pplQuery || values.pplQuery.trim() === '') {
       errors.pplQuery = 'PPL query is required';
+    }
+
+    // Validate triggers if they exist
+    if (values.triggerDefinitions && Array.isArray(values.triggerDefinitions)) {
+      values.triggerDefinitions.forEach((trigger: any, index: number) => {
+        // Check if trigger has a condition that's too high (common issue)
+        if (trigger.type === 'number_of_results' && trigger.num_results_value) {
+          const threshold = Number(trigger.num_results_value);
+          if (threshold > 10000) {
+            if (!errors.triggerDefinitions) errors.triggerDefinitions = [];
+            errors.triggerDefinitions[index] = {
+              num_results_value: 'Threshold value should not exceed 10,000 for better performance',
+            };
+          }
+        }
+      });
     }
 
     return errors;
@@ -450,23 +493,6 @@ export class CreateMonitorFlyout extends Component<FlyoutComponentProps, CreateM
             </EuiText>
           )}
         </>
-      </EuiFormRow>
-
-      <EuiFormRow>
-        <EuiCheckbox
-          id="useClassicMonitorsPplInline"
-          label={
-            <span>
-              Use classic monitors{' '}
-              <EuiToolTip content="Use pre-existing monitor types available in classic alerts.">
-                <EuiIconTip type="iInCircle" />
-              </EuiToolTip>
-            </span>
-          }
-          checked={values.monitor_mode === 'legacy'}
-          onChange={(e) => setFieldValue('monitor_mode', e.target.checked ? 'legacy' : 'ppl')}
-          data-test-subj="useClassicCheckboxPplInline"
-        />
       </EuiFormRow>
     </>
   );
@@ -587,10 +613,28 @@ export class CreateMonitorFlyout extends Component<FlyoutComponentProps, CreateM
                   previewOpen: true,
                 });
               } catch (e: any) {
+                const errorMessage = e?.body?.message || e?.message || 'Preview failed';
+                let userFriendlyMessage = errorMessage;
+
+                // Provide user-friendly error messages for common issues
+                if (errorMessage.includes('syntax') || errorMessage.includes('parse')) {
+                  userFriendlyMessage = 'Invalid PPL query syntax. Please check your query.';
+                } else if (errorMessage.includes('index') && errorMessage.includes('not found')) {
+                  userFriendlyMessage = 'Index not found. Please verify the index name in your query.';
+                } else if (errorMessage.includes('timeout')) {
+                  userFriendlyMessage = 'Query execution timed out. Try reducing the time range or simplifying the query.';
+                }
+
                 this.setState({
-                  previewError: e?.body?.message || e?.message || 'Preview failed',
+                  previewError: userFriendlyMessage,
                   previewLoading: false,
                   previewOpen: true,
+                });
+
+                // Show toast notification for preview errors
+                this.props.services.notifications.toasts.addWarning({
+                  title: 'Query preview failed',
+                  text: userFriendlyMessage,
                 });
               }
             }}
@@ -890,7 +934,7 @@ export class CreateMonitorFlyout extends Component<FlyoutComponentProps, CreateM
       searchType: SEARCH_TYPE.QUERY,
       monitor_type: MONITOR_TYPE.QUERY_LEVEL,
       dataSourceId: dependencies.query.dataset?.dataSource?.id || '',
-      name: `Monitor from Explore ${new Date().toISOString().slice(0, 19)}`,
+      name: '', // Don't auto-populate, let user enter a meaningful name
       index: dependencies.query.dataset?.title ? [{ label: dependencies.query.dataset.title }] : [],
       useLookBackWindow: true,
       lookBackAmount: 1,
