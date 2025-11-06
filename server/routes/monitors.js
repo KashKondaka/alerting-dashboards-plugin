@@ -35,7 +35,19 @@ export default function (services, router, dataSourceEnabled) {
   router.get(
     {
       path: '/api/alerting/v2/monitors/alerts',
-      validate: { query: schema.object({}) },
+      validate: { 
+        query: createValidateQuerySchema(dataSourceEnabled, {
+          monitorIds: schema.maybe(schema.any()),
+          monitorType: schema.maybe(schema.string()),
+          severityLevel: schema.maybe(schema.string()),
+          alertState: schema.maybe(schema.string()),
+          search: schema.maybe(schema.string()),
+          from: schema.maybe(schema.number()),
+          size: schema.maybe(schema.number()),
+          sortField: schema.maybe(schema.string()),
+          sortDirection: schema.maybe(schema.string()),
+        })
+      },
     },
     monitorService.alertsForMonitorsV2
   );

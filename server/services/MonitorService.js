@@ -11,7 +11,12 @@ import { MDSEnabledClientService } from './MDSEnabledClientService';
 import { DEFAULT_HEADERS } from "./utils/constants";
 
 const isNoHandlerError = (err) =>
-  err && (err.response?.includes?.('no handler found for uri') || err.body?.error?.includes?.('no handler found for uri'));
+  err && (
+    err.response?.includes?.('no handler found for uri') || 
+    err.body?.error?.includes?.('no handler found for uri') ||
+    err.message?.includes?.('no handler found for uri') ||
+    String(err).includes('no handler found for uri')
+  );
 
 const isV2MonitorPayload = (body) =>
   !!body?.ppl_monitor ||
@@ -103,7 +108,17 @@ export default class MonitorService extends MDSEnabledClientService {
         return res.ok({ 
           body: { 
             ok: true, 
-            resp: { alerts: [], totalAlerts: 0 } 
+            resp: { alerts_v2: [], total_alerts_v2: 0 } 
+          } 
+        });
+      }
+      // If OpenSearch backend doesn't support this endpoint (e.g., older versions), return empty result
+      if (isNoHandlerError(err)) {
+        console.warn('Alerting - MonitorService - alertsForMonitorsV2: v2 alerts endpoint not available in OpenSearch backend, returning empty result');
+        return res.ok({ 
+          body: { 
+            ok: true, 
+            resp: { alerts_v2: [], total_alerts_v2: 0 } 
           } 
         });
       }
