@@ -205,9 +205,10 @@ export default class Dashboard extends Component {
             let rawAlerts = [];
             let totalFromServer;
 
-            // v2: { alertV2s: [...], totalAlertV2s: N }
-            if (Array.isArray(payload?.alertV2s)) {
-              rawAlerts = payload.alertV2s.map((a) => ({
+            // v2 API returns: { alerts_v2: [...], total_alerts_v2: N }
+            const alertsArray = payload?.alerts_v2 || payload?.alertV2s;
+            if (Array.isArray(alertsArray)) {
+              rawAlerts = alertsArray.map((a) => ({
                 ...a,
                 monitor_id: a.monitor_v2_id,
                 monitor_name: a.monitor_v2_name,
@@ -222,7 +223,7 @@ export default class Dashboard extends Component {
                 // v2 may not include a state; default to ACTIVE so filters/selection work
                 state: a.state || 'ACTIVE',
               }));
-              totalFromServer = payload.totalAlertV2s ?? rawAlerts.length;
+              totalFromServer = payload.total_alerts_v2 ?? payload.totalAlertV2s ?? rawAlerts.length;
             }
 
             // Filter by monitor IDs if specified

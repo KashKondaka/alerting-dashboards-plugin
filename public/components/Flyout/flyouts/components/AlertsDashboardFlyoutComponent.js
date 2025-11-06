@@ -228,8 +228,10 @@ export default class AlertsDashboardFlyoutComponent extends Component {
           const payload = resp.resp || resp;
           let allAlerts = [];
           
-          if (Array.isArray(payload?.alertV2s)) {
-            allAlerts = payload.alertV2s;
+          // v2 API returns: { alerts_v2: [...], total_alerts_v2: N }
+          const alertsArray = payload?.alerts_v2 || payload?.alertV2s;
+          if (Array.isArray(alertsArray)) {
+            allAlerts = alertsArray;
           }
           
           // Filter by trigger_v2_id (in v2, triggerID should be trigger_v2_id)
