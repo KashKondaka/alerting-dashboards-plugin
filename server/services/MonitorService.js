@@ -101,29 +101,36 @@ export default class MonitorService extends MDSEnabledClientService {
         headers: DEFAULT_HEADERS,
       });
       
-      return res.ok({ body: { ok: true, resp } });
+      // Debug: Add metadata to response to see what's happening
+      return res.ok({ 
+        body: { 
+          ok: true, 
+          resp,
+          debug: {
+            path,
+            dataSourceId: req.query?.dataSourceId,
+            hasDataSource: !!req.query?.dataSourceId,
+            responseType: typeof resp,
+            responseKeys: resp ? Object.keys(resp) : [],
+            alertsCount: resp?.alerts_v2?.length || 0,
+            totalFromBackend: resp?.total_alerts_v2
+          }
+        } 
+      });
     } catch (err) {
-      // If the alerts index doesn't exist yet (no alerts created), return empty result
-      if (isIndexNotFoundError(err)) {
-        return res.ok({ 
-          body: { 
-            ok: true, 
-            resp: { alerts_v2: [], total_alerts_v2: 0 } 
-          } 
-        });
-      }
-      // If OpenSearch backend doesn't support this endpoint (e.g., older versions), return empty result
-      if (isNoHandlerError(err)) {
-        console.warn('Alerting - MonitorService - alertsForMonitorsV2: v2 alerts endpoint not available in OpenSearch backend, returning empty result');
-        return res.ok({ 
-          body: { 
-            ok: true, 
-            resp: { alerts_v2: [], total_alerts_v2: 0 } 
-          } 
-        });
-      }
-      console.error('Alerting - MonitorService - alertsForMonitorsV2:', err);
-      return res.ok({ body: { ok: false, resp: err.message } });
+      // Temporarily return full error details in response for debugging
+      return res.ok({ 
+        body: { 
+          ok: false, 
+          resp: 'ERROR',
+          error: err.message,
+          errorType: err.constructor.name,
+          errorBody: err.body,
+          errorResponse: err.response,
+          isIndexNotFound: isIndexNotFoundError(err),
+          isNoHandler: isNoHandlerError(err)
+        } 
+      });
     }
   };
 
