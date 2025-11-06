@@ -223,7 +223,7 @@ export default class AlertsDashboardFlyoutComponent extends Component {
     
     if (viewMode === 'new') {
       // For v2/new mode, call the v2 API and filter by trigger_v2_id
-      httpClient.get('../api/alerting/v2/monitors/alerts')?.then((resp) => {
+      httpClient.get('/api/alerting/v2/monitors/alerts')?.then((resp) => {
         if (resp.ok) {
           const payload = resp.resp || resp;
           let allAlerts = [];

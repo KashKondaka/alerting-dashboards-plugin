@@ -773,6 +773,7 @@ export default class MonitorService extends MDSEnabledClientService {
 
       const should = [];
       const mustList = [must];
+      
       if (monitorIds !== undefined) {
         mustList.push({ terms: { _id: Array.isArray(monitorIds) ? monitorIds : [monitorIds] } });
       } else if (monitorIds === 'empty') {
@@ -828,8 +829,17 @@ export default class MonitorService extends MDSEnabledClientService {
         headers: DEFAULT_HEADERS,
       });
 
-      const totalMonitors = _.get(getResponse, 'hits.total.value', 0);
-      const monitorKeyValueTuples = _.get(getResponse, 'hits.hits', []).map((result) => {
+      // Filter out metadata documents before processing
+      const allHits = _.get(getResponse, 'hits.hits', []);
+      const filteredHits = allHits.filter((result) => {
+        const id = result._id;
+        const monitor = result._source?.monitor || result._source || {};
+        // Exclude if ID ends with -metadata OR if it has a metadata field
+        return !id.endsWith('-metadata') && !monitor.metadata;
+      });
+      
+      const totalMonitors = filteredHits.length;
+      const monitorKeyValueTuples = filteredHits.map((result) => {
         const {
           _id: id,
           _version: version,
@@ -1182,8 +1192,17 @@ export default class MonitorService extends MDSEnabledClientService {
         headers: DEFAULT_HEADERS,
       });
 
-      const totalMonitors = _.get(getResponse, 'hits.total.value', 0);
-      const monitorKeyValueTuples = _.get(getResponse, 'hits.hits', []).map((result) => {
+      // Filter out metadata documents before processing
+      const allHits = _.get(getResponse, 'hits.hits', []);
+      const filteredHits = allHits.filter((result) => {
+        const id = result._id;
+        const monitor = result._source?.monitor || result._source || {};
+        // Exclude if ID ends with -metadata OR if it has a metadata field
+        return !id.endsWith('-metadata') && !monitor.metadata;
+      });
+      
+      const totalMonitors = filteredHits.length;
+      const monitorKeyValueTuples = filteredHits.map((result) => {
         const {
           _id: id,
           _version: version,

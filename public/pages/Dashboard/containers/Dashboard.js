@@ -175,8 +175,8 @@ export default class Dashboard extends Component {
       // Call different API based on view mode
       const { viewMode } = this.state;
       const apiPath = viewMode === 'classic' 
-        ? '../api/alerting/alerts'        // v1 API for classic view
-        : '../api/alerting/v2/monitors/alerts';  // v2 API for new view
+        ? '/api/alerting/alerts'        // v1 API for classic view
+        : '/api/alerting/v2/monitors/alerts';  // v2 API for new view
       
       const apiParams = viewMode === 'classic'
         ? { query: { ...params } }  // v1 accepts query params

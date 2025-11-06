@@ -44,6 +44,17 @@ export default class Monitors extends Component {
       this.props.location
     );
 
+    // Initialize viewMode from localStorage, default to 'new'
+    let initialViewMode = 'new';
+    try {
+      const stored = localStorage.getItem('alerting_monitors_view_mode');
+      if (stored === 'classic' || stored === 'new') {
+        initialViewMode = stored;
+      }
+    } catch (e) {
+      console.error('Error reading viewMode from localStorage:', e);
+    }
+
     this.state = {
       alerts: [],
       totalAlerts: 0,
@@ -59,7 +70,7 @@ export default class Monitors extends Component {
       monitorState: state,
       loadingMonitors: true,
       monitorItemsToDelete: undefined,
-      viewMode: 'new', // 'new' or 'classic'
+      viewMode: initialViewMode, // 'new' or 'classic' - initialized from localStorage
     };
     this.getMonitors = _.debounce(this.getMonitors.bind(this), 500, { leading: true });
     this.onTableChange = this.onTableChange.bind(this);
@@ -600,7 +611,15 @@ export default class Monitors extends Component {
                           legend="Monitor view toggle"
                           options={toggleButtons}
                           idSelected={viewMode}
-                          onChange={(id) => this.setState({ viewMode: id })}
+                          onChange={(id) => {
+                            this.setState({ viewMode: id });
+                            // Persist viewMode to localStorage so MonitorDetails can use it
+                            try {
+                              localStorage.setItem('alerting_monitors_view_mode', id);
+                            } catch (e) {
+                              console.error('Error saving viewMode to localStorage:', e);
+                            }
+                          }}
                           buttonSize="compressed"
                           color="text"
                           isFullWidth={false}
