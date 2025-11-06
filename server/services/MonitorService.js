@@ -92,7 +92,6 @@ export default class MonitorService extends MDSEnabledClientService {
   alertsForMonitorsV2 = async (context, req, res) => {
     try {
       const client = this.getClientBasedOnDataSource(context, req);
-      
       const path = `/_plugins/_alerting/v2/monitors/alerts`;
       
       const resp = await client('transport.request', {
@@ -101,36 +100,53 @@ export default class MonitorService extends MDSEnabledClientService {
         headers: DEFAULT_HEADERS,
       });
       
-      // Debug: Add metadata to response to see what's happening
-      return res.ok({ 
-        body: { 
-          ok: true, 
-          resp,
-          debug: {
-            path,
-            dataSourceId: req.query?.dataSourceId,
-            hasDataSource: !!req.query?.dataSourceId,
-            responseType: typeof resp,
-            responseKeys: resp ? Object.keys(resp) : [],
-            alertsCount: resp?.alerts_v2?.length || 0,
-            totalFromBackend: resp?.total_alerts_v2
-          }
-        } 
-      });
+      return res.ok({ body: { ok: true, resp } });
     } catch (err) {
-      // Temporarily return full error details in response for debugging
-      return res.ok({ 
-        body: { 
-          ok: false, 
-          resp: 'ERROR',
-          error: err.message,
-          errorType: err.constructor.name,
-          errorBody: err.body,
-          errorResponse: err.response,
-          isIndexNotFound: isIndexNotFoundError(err),
-          isNoHandler: isNoHandlerError(err)
-        } 
-      });
+      // If the data source cluster doesn't support v2 alerts endpoint, try the default cluster
+      if (isNoHandlerError(err) && req.query?.dataSourceId) {
+        try {
+          console.warn('[alertsForMonitorsV2] Data source cluster does not support v2 alerts, falling back to default cluster');
+          
+          // Get client without data source routing (use default cluster)
+          const defaultClient = this.osDriver.asScoped(req).callAsCurrentUser;
+          const path = `/_plugins/_alerting/v2/monitors/alerts`;
+          
+          const resp = await defaultClient('transport.request', {
+            method: 'GET',
+            path,
+            headers: DEFAULT_HEADERS,
+          });
+          
+          return res.ok({ body: { ok: true, resp } });
+        } catch (fallbackErr) {
+          console.error('[alertsForMonitorsV2] Fallback to default cluster also failed:', fallbackErr);
+          // Continue to error handling below
+        }
+      }
+      
+      // If the alerts index doesn't exist yet (no alerts created), return empty result
+      if (isIndexNotFoundError(err)) {
+        return res.ok({ 
+          body: { 
+            ok: true, 
+            resp: { alerts_v2: [], total_alerts_v2: 0 } 
+          } 
+        });
+      }
+      
+      // If endpoint not available and fallback failed, return empty result
+      if (isNoHandlerError(err)) {
+        console.warn('[alertsForMonitorsV2] v2 alerts endpoint not available, returning empty result');
+        return res.ok({ 
+          body: { 
+            ok: true, 
+            resp: { alerts_v2: [], total_alerts_v2: 0 } 
+          } 
+        });
+      }
+      
+      console.error('[alertsForMonitorsV2] Unexpected error:', err);
+      return res.ok({ body: { ok: false, resp: err.message } });
     }
   };
 
