@@ -263,7 +263,7 @@ export class AlertingPlugin implements Plugin<void, AlertingStart, AlertingSetup
           const isStatusAllowed = allowedStatuses.includes(deps.resultStatus.status);
 
           // Check if data source is AOSS collection - if so, disable the button
-          const isAOSSCollection = deps.executedQuery?.dataset?.dataSource?.type === 'OpenSearch Serverless';
+          const isAOSSCollection = deps.query?.dataset?.dataSource?.type === 'OpenSearch Serverless';
 
           return isStatusAllowed && !isAOSSCollection;
         },
