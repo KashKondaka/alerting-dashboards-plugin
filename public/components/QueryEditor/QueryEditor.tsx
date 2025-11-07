@@ -83,7 +83,7 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({
         // IMPORTANT: Set language to 'ppl' FIRST to avoid toast notification
         // This ensures that when we set the dataset, the current language is already 'ppl'
         data.query.queryString.setQuery({
-          language: 'ppl',
+          language: 'PPL',
         });
 
         // Fetch first available index pattern
@@ -123,7 +123,7 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({
           // Set the language to 'ppl' directly in the query to avoid language change toast
           data.query.queryString.setQuery({
             query: '',
-            language: 'ppl',
+            language: 'PPL',
             dataset,
           });
 

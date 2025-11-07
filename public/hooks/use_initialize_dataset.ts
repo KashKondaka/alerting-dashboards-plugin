@@ -95,7 +95,7 @@ export const useInitializeDataset = (services: any, indices: string[]) => {
           // Set the dataset in queryString service - THIS IS THE KEY STEP!
           const initialQuery = data.query.queryString.getInitialQueryByDataset({
             ...dataset,
-            language: 'ppl',
+            language: 'PPL',
           });
 
           console.log('[useInitializeDataset] Setting query with dataset in queryString service');

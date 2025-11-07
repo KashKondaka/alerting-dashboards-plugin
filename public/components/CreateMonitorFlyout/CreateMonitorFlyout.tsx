@@ -156,7 +156,7 @@ export class CreateMonitorFlyout extends Component<FlyoutComponentProps, CreateM
         const dataset = await getDefaultDataset();
         queryString.setQuery({
           query: this.props.dependencies.queryInEditor || '',
-          language: 'ppl',
+          language: 'PPL',
           dataset: dataset,
         });
       }
@@ -307,7 +307,7 @@ export class CreateMonitorFlyout extends Component<FlyoutComponentProps, CreateM
       description: meta.description,
       query: {
         query: pplQuery,
-        language: 'ppl',
+        language: 'PPL',
       },
     };
 
@@ -339,7 +339,7 @@ export class CreateMonitorFlyout extends Component<FlyoutComponentProps, CreateM
       if (queryString && queryText) {
         queryString.setQuery({
           query: queryText,
-          language: 'ppl',
+          language: 'PPL',
         });
       }
     } catch (err) {
@@ -610,7 +610,7 @@ export class CreateMonitorFlyout extends Component<FlyoutComponentProps, CreateM
 
                             queryString.setQuery({
                               query: this.formikRef.current?.values?.pplQuery || '',
-                              language: 'ppl',
+                              language: 'PPL',
                               dataset: dataset,
                             });
                           }
@@ -715,7 +715,7 @@ export class CreateMonitorFlyout extends Component<FlyoutComponentProps, CreateM
                 if (queryString) {
                   queryString.setQuery({
                     query: text,
-                    language: 'ppl',
+                    language: 'PPL',
                   });
                 }
               } catch (err) {

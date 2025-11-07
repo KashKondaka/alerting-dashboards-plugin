@@ -447,7 +447,7 @@ class CreateMonitor extends Component {
       description: meta.description,
       query: {
         query: pplQuery,
-        language: 'ppl',
+        language: 'PPL',
       },
     };
 
@@ -482,7 +482,7 @@ class CreateMonitor extends Component {
       if (queryString && queryText) {
         queryString.setQuery({
           query: queryText,
-          language: 'ppl',
+          language: 'PPL',
         });
         console.log('[handleLoadSavedQuery] Updated queryString service with loaded query');
       }
@@ -529,7 +529,7 @@ class CreateMonitor extends Component {
         
         queryString.setQuery({
           query: '',
-          language: 'ppl',
+          language: 'PPL',
           dataset: dataset,
         });
         console.log('[componentDidMount] Query set successfully with dataset');
@@ -647,7 +647,7 @@ class CreateMonitor extends Component {
               
               queryString.setQuery({
                 query: '',
-                language: 'ppl',
+                language: 'PPL',
                 dataset: dataset,
               });
               console.log('[componentDidUpdate] Query initialized successfully with dataset');
@@ -1008,7 +1008,7 @@ class CreateMonitor extends Component {
                             
                             queryString.setQuery({
                               query: this.formikRef.current?.values?.pplQuery || '',
-                              language: 'ppl',
+                              language: 'PPL',
                               dataset: dataset,
                             });
                             console.log('[Saved Queries] Query initialized before opening flyout with dataset:', dataset);
@@ -1115,7 +1115,7 @@ class CreateMonitor extends Component {
                 if (queryString) {
                   queryString.setQuery({
                     query: text,
-                    language: 'ppl',
+                    language: 'PPL',
                   });
                 }
               } catch (err) {
