@@ -19,6 +19,11 @@ const isNoHandlerError = (err) =>
     String(err).includes('no handler found for uri')
   );
 
+const isLegacyMonitorDeleteError = (err) => {
+  const reason = err?.body?.error?.reason || err?.message || String(err || '');
+  return typeof reason === 'string' && reason.includes('Alerting V1 Monitor');
+};
+
 const isV2MonitorPayload = (body) =>
   !!body?.ppl_monitor ||
   body?.query_language === 'ppl' ||
@@ -531,6 +536,27 @@ export default class MonitorService extends MDSEnabledClientService {
     } catch (err) {
       console.error('Alerting - MonitorService - deleteMonitor error:', err);
       
+      // If the monitor belongs to V1, fall back to legacy API
+      if (isLegacyMonitorDeleteError(err)) {
+        try {
+          const { id } = req.params;
+          const client = this.getClientBasedOnDataSource(context, req);
+          const params = { monitorId: id };
+          const version = req.query?.version;
+          if (version !== undefined) {
+            params.version = version;
+          }
+
+          const legacyResp = await client('alerting.deleteMonitor', params);
+          return res.ok({ body: { ok: true, resp: legacyResp } });
+        } catch (legacyErr) {
+          console.error('Alerting - MonitorService - legacy delete fallback failed:', legacyErr);
+          return res.ok({
+            body: { ok: false, resp: legacyErr.message || legacyErr.toString?.() || legacyErr },
+          });
+        }
+      }
+
       // Check if it's a 404 (monitor doesn't exist)
       if (err.statusCode === 404 || err.body?.status === 404) {
         return res.ok({ body: { ok: false, resp: 'Monitor not found' } });
