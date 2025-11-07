@@ -175,9 +175,7 @@ export const getInitialValues = ({
     monitorToEdit?.query_language === 'ppl' ||
     !!monitorToEdit?.ppl_monitor ||
     !!monitorToEdit?.monitor_v2?.ppl_monitor;
-    if (!('monitor_mode' in initialValues)) {
-      initialValues.monitor_mode = isPpl ? 'ppl' : 'legacy';
-    }
+    initialValues.monitor_mode = isPpl ? 'ppl' : 'legacy';
     if (isPpl) {
       initialValues.searchType = 'query';
       initialValues.pplQuery =
