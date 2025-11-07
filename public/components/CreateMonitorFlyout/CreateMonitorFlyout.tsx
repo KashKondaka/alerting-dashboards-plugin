@@ -468,6 +468,11 @@ export class CreateMonitorFlyout extends Component<FlyoutComponentProps, CreateM
       errors.pplQuery = 'PPL query is required';
     }
 
+    // Validate description length
+    if (values.description && values.description.length > 500) {
+      errors.description = 'Description must be 500 characters or less';
+    }
+
     // Validate triggers if they exist
     if (values.triggerDefinitions && Array.isArray(values.triggerDefinitions)) {
       values.triggerDefinitions.forEach((trigger: any, index: number) => {
@@ -533,7 +538,7 @@ export class CreateMonitorFlyout extends Component<FlyoutComponentProps, CreateM
             value={values.description || ''}
             onChange={(e) => {
               const value = e.target.value;
-              if (value.length <= 10000) {
+              if (value.length <= 500) {
                 setFieldValue('description', value);
               }
             }}
@@ -544,7 +549,7 @@ export class CreateMonitorFlyout extends Component<FlyoutComponentProps, CreateM
           />
           {values.description && (
             <EuiText size="xs" color="subdued" style={{ marginTop: '4px' }}>
-              {values.description.length} / 10,000 characters
+              {values.description.length} / 500 characters
             </EuiText>
           )}
         </>
