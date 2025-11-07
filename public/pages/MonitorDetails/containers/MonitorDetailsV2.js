@@ -255,7 +255,7 @@ export default class MonitorDetails extends Component {
       });
   };
 
-  updateMonitor = (update, actionKeywords = ['update', 'monitor']) => {
+  updateMonitor = async (update, actionKeywords = ['update', 'monitor']) => {
     const {
       match: {
         params: { monitorId },
@@ -265,43 +265,104 @@ export default class MonitorDetails extends Component {
     } = this.props;
     const { monitor, ifSeqNo, ifPrimaryTerm } = this.state;
 
-    let query = { ifSeqNo, ifPrimaryTerm };
-    switch (monitor.monitor_type) {
-      case MONITOR_TYPE.DOC_LEVEL:
-        query = {};
-        break;
+    if (!monitorId || !monitor) {
+      return;
     }
 
     this.setState({ updating: true });
+
     const dataSourceQuery = getDataSourceQueryObj();
-    return httpClient
-      .put(
-        `../api/alerting/${
+    const queryParams = {
+      ...(dataSourceQuery?.query || {}),
+    };
+
+    if (monitor.monitor_type !== MONITOR_TYPE.DOC_LEVEL) {
+      if (ifSeqNo !== undefined) queryParams.ifSeqNo = ifSeqNo;
+      if (ifPrimaryTerm !== undefined) queryParams.ifPrimaryTerm = ifPrimaryTerm;
+    }
+
+    const isPplMonitor = Boolean(
+      this.getV2Ppl(monitor) ||
+        monitor?.ppl_monitor ||
+        monitor?.monitor_mode === 'ppl' ||
+        monitor?.monitorMode === 'ppl' ||
+        (typeof monitor?.query_language === 'string' &&
+          monitor.query_language.toLowerCase() === 'ppl') ||
+        (typeof monitor?.queryLanguage === 'string' &&
+          monitor.queryLanguage.toLowerCase() === 'ppl')
+    );
+
+    try {
+      let resp;
+
+      if (isPplMonitor) {
+        const basePplMonitor = _.cloneDeep(
+          this.getV2Ppl(monitor) || monitor?.ppl_monitor || monitor || {}
+        );
+
+        const cleanedPplMonitor = _.omit(
+          { ...basePplMonitor, ...update },
+          ['id', '_id', 'item_type', 'monitor_type', 'version', '_version', 'ifSeqNo', 'ifPrimaryTerm']
+        );
+
+        if (Array.isArray(cleanedPplMonitor.triggers)) {
+          cleanedPplMonitor.triggers = cleanedPplMonitor.triggers.map((trigger) =>
+            _.omit(trigger, ['id', 'last_triggered_time', 'last_execution_time'])
+          );
+        }
+
+        resp = await httpClient.put(`../api/alerting/monitors/${monitorId}`, {
+          query: queryParams,
+          body: JSON.stringify({ monitor_mode: 'ppl', ppl_monitor: cleanedPplMonitor }),
+        });
+      } else {
+        const legacyPayload = _.omit(
+          { ...monitor, ...update },
+          ['id', '_id', 'item_type', 'currentTime', 'version', '_version', 'ifSeqNo', 'ifPrimaryTerm']
+        );
+
+        const path =
           monitor.workflow_type && monitor.workflow_type === MONITOR_TYPE.COMPOSITE_LEVEL
             ? 'workflows'
-            : 'monitors'
-        }/${monitorId}`,
-        {
-          body: JSON.stringify({ ...monitor, ...update }),
-          query: dataSourceQuery?.query,
-        }
-      )
-      .then((resp) => {
-        if (resp.ok) {
-          const { version: monitorVersion } = resp;
-          this.setState({ monitorVersion, updating: false });
-        } else {
-          console.error('Failed to update the monitor:', resp);
-          backendErrorNotification(notifications, ...actionKeywords, resp.resp);
-          this.setState({ updating: false }); // release the button
-        }
-        return resp;
-      })
-      .catch((err) => {
-        console.log('err', err);
+            : 'monitors';
+
+        resp = await httpClient.put(`../api/alerting/${path}/${monitorId}`, {
+          query: queryParams,
+          body: JSON.stringify(legacyPayload),
+        });
+      }
+
+      if (!resp?.ok) {
+        backendErrorNotification(notifications, ...actionKeywords, resp?.resp);
         this.setState({ updating: false });
-        return err;
+        return resp;
+      }
+
+      const nextState = {
+        updating: false,
+      };
+      if (resp.version !== undefined) {
+        nextState.monitorVersion = resp.version;
+      }
+      if (resp.ifSeqNo !== undefined) {
+        nextState.ifSeqNo = resp.ifSeqNo;
+      }
+      if (resp.ifPrimaryTerm !== undefined) {
+        nextState.ifPrimaryTerm = resp.ifPrimaryTerm;
+      }
+
+      this.setState(nextState, () => {
+        if (resp?.version === undefined) {
+          this.getMonitor(monitorId);
+        }
       });
+
+      return resp;
+    } catch (err) {
+      console.log('err', err);
+      this.setState({ updating: false });
+      return err;
+    }
   };
 
   renderNoTriggersCallOut = () => {
