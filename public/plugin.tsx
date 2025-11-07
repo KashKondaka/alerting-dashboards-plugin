@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import React from 'react';
 import { ALERTS_NAV_ID, DESTINATIONS_NAV_ID, MONITORS_NAV_ID, PLUGIN_NAME } from '../utils/constants';
 import {
   Plugin,
@@ -13,6 +14,7 @@ import {
   AppMountParameters,
   DEFAULT_APP_CATEGORIES,
   AppUpdater,
+  OverlayRef,
 } from '../../../src/core/public';
 import { ACTION_ALERTING } from './actions/alerting_dashboard_action';
 import { CONTEXT_MENU_TRIGGER, EmbeddableStart } from '../../../src/plugins/embeddable/public';
@@ -21,7 +23,7 @@ import { alertingTriggerAd } from './utils/contextMenu/triggers';
 import { ExpressionsSetup } from '../../../src/plugins/expressions/public';
 import { UiActionsSetup } from '../../../src/plugins/ui_actions/public';
 import { overlayAlertsFunction } from './expressions/overlay_alerts';
-import { setClient, setEmbeddable, setNotifications, setOverlays, setSavedAugmentVisLoader, setUISettings, setQueryService, setSavedObjectsClient, setDataSourceEnabled, setDataSourceManagementPlugin, setNavigationUI, setApplication, setContentManagementStart, setAssistantDashboards, setAssistantClient } from './services';
+import { setClient, setEmbeddable, setNotifications, setOverlays, setSavedAugmentVisLoader, setUISettings, setQueryService, setSavedObjectsClient, setDataSourceEnabled, setDataSourceManagementPlugin, setNavigationUI, setApplication, setContentManagementStart, setAssistantDashboards, setAssistantClient, isPplV2Enabled } from './services';
 import { VisAugmenterStart } from '../../../src/plugins/vis_augmenter/public';
 import { DataPublicPluginStart } from '../../../src/plugins/data/public';
 import { AssistantSetup, AssistantPublicPluginStart  } from './types';
@@ -35,6 +37,7 @@ import { registerAlertsCard } from './utils/helpers';
 import type { ExplorePluginSetup, ExplorePluginStart } from '../../../src/plugins/explore/public';
 import { ResultStatus } from '../../../src/plugins/data/public';
 import { CreateMonitorFlyout } from './components/CreateMonitorFlyout';
+import { toMountPoint } from '../../../src/plugins/opensearch_dashboards_react/public';
 
 declare module '../../../src/plugins/ui_actions/public' {
   export interface ActionContextMapping {
@@ -152,6 +155,7 @@ export class AlertingPlugin implements Plugin<void, AlertingStart, AlertingSetup
         title: 'Alerts',
         order: 9070,
         category: DEFAULT_APP_CATEGORIES.detect,
+        // @ts-expect-error BehaviorSubject implements Observable but TS infers different internal shape
         updater$: this.appStateUpdater,
         mount: async (params: AppMountParameters) => {
           return mountWrapper(params, "/dashboard");
@@ -163,6 +167,7 @@ export class AlertingPlugin implements Plugin<void, AlertingStart, AlertingSetup
         title: 'Monitors',
         order: 9070,
         category: DEFAULT_APP_CATEGORIES.detect,
+        // @ts-expect-error BehaviorSubject implements Observable but TS infers different internal shape
         updater$: this.appStateUpdater,
         mount: async (params: AppMountParameters) => {
           return mountWrapper(params, "/monitors");
@@ -174,6 +179,7 @@ export class AlertingPlugin implements Plugin<void, AlertingStart, AlertingSetup
         title: 'Destinations',
         order: 9070,
         category: DEFAULT_APP_CATEGORIES.detect,
+        // @ts-expect-error BehaviorSubject implements Observable but TS infers different internal shape
         updater$: this.appStateUpdater,
         mount: async (params: AppMountParameters) => {
           return mountWrapper(params, "/destinations");
@@ -255,9 +261,15 @@ export class AlertingPlugin implements Plugin<void, AlertingStart, AlertingSetup
     if (isExploreEnabled) {
       explore.queryPanelActionsRegistry.register({
         id: 'alerting-create-monitor-from-explore',
-        actionType: 'flyout',
         order: 1,
         getIsEnabled: (deps) => {
+          try {
+            if (!isPplV2Enabled()) {
+              return false;
+            }
+          } catch (err) {
+            return false;
+          }
           // Allow monitor creation for READY, NO_RESULTS, and ERROR statuses
           const allowedStatuses = [ResultStatus.READY, ResultStatus.NO_RESULTS, ResultStatus.ERROR];
           const isStatusAllowed = allowedStatuses.includes(deps.resultStatus.status);
@@ -269,7 +281,31 @@ export class AlertingPlugin implements Plugin<void, AlertingStart, AlertingSetup
         },
         getLabel: () => 'Create monitor',
         getIcon: () => 'bell',
-        component: CreateMonitorFlyout,
+        onClick: async (deps) => {
+          try {
+            if (!isPplV2Enabled()) {
+              return;
+            }
+          } catch (err) {
+            return;
+          }
+
+          const [coreStart, depsStart] = await core.getStartServices();
+          let flyoutRef: OverlayRef | undefined;
+          const flyoutContent = (
+            <CreateMonitorFlyout
+              closeFlyout={() => flyoutRef?.close()}
+              dependencies={deps}
+              services={{
+                notifications: coreStart.notifications,
+                data: depsStart.data,
+              }}
+            />
+          );
+          flyoutRef = coreStart.overlays.openFlyout(toMountPoint(flyoutContent), {
+            ownFocus: true,
+          });
+        },
       });
     }
   }
