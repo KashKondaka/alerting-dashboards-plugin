@@ -85,7 +85,13 @@ export const getInitialValues = ({
 
     // Add trigger
     const monitorType = initialValues.monitor_type;
-    const initialTrigger = getInitialTriggerValues({ flyoutMode, monitorType, triggers: [] });
+    const monitorMode = initialValues.monitor_mode;
+    const initialTrigger = getInitialTriggerValues({
+      flyoutMode,
+      monitorType,
+      monitorMode,
+      triggers: [],
+    });
     initialValues.triggerDefinitions = [initialTrigger];
 
     // Add aggregations
