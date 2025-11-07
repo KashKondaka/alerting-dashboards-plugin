@@ -27,7 +27,6 @@ import {
   EuiTextColor,
   EuiSelect,
   EuiFieldNumber,
-  EuiPopover,
   EuiAccordion,
   EuiPanel,
   EuiHorizontalRule,
@@ -48,7 +47,6 @@ import CustomSteps from '../../pages/CreateMonitor/components/CustomSteps';
 import ConfigureTriggers from '../../pages/CreateTrigger/containers/ConfigureTriggers';
 import { QueryEditor } from '../QueryEditor';
 import { AlertingDataTable } from '../DataTable';
-import { SavedQueryManagementComponent } from '../../../../../src/plugins/data/public';
 import {
   runPPLPreview,
   submitPPL,
@@ -80,7 +78,6 @@ type CreateMonitorFlyoutState = {
   previewResult: any;
   previewQuery: string;
   previewOpen: boolean;
-  savedQueriesPopoverOpen: boolean;
   indices: any[];
   availableDateFields: string[];
   dateFieldsLoading: boolean;
@@ -107,7 +104,6 @@ export class CreateMonitorFlyout extends Component<FlyoutComponentProps, CreateM
       previewResult: null,
       previewQuery: '',
       previewOpen: false,
-      savedQueriesPopoverOpen: false,
       indices: [],
       availableDateFields: [],
       dateFieldsLoading: false,
@@ -282,73 +278,6 @@ export class CreateMonitorFlyout extends Component<FlyoutComponentProps, CreateM
         this.formikRef.current.setFieldValue('useLookBackWindow', false, false);
       }
     }
-  };
-
-  getSavedQueryService = () => {
-    try {
-      const services = this.props.services;
-      return services?.data?.query?.savedQueries;
-    } catch (e) {
-      console.error('[getSavedQueryService] error:', e);
-      return undefined;
-    }
-  };
-
-  handleSaveQuery = async (meta: any, saveAsNew = false) => {
-    const svc = this.getSavedQueryService();
-    const toasts = this.props.services?.notifications?.toasts;
-
-    if (!svc) {
-      toasts?.addWarning('Saved query service is not available.');
-      return;
-    }
-
-    const pplQuery = this.formikRef.current?.values?.pplQuery || '';
-    const attributes = {
-      title: meta.title,
-      description: meta.description,
-      query: {
-        query: pplQuery,
-        language: 'PPL',
-      },
-    };
-
-    try {
-      await svc.saveQuery(attributes, { overwrite: !saveAsNew });
-      toasts?.addSuccess(`Your query "${attributes.title}" was saved`);
-    } catch (err: any) {
-      toasts?.addDanger(
-        err && err.message ? `Failed to save query: ${err.message}` : 'Failed to save query.'
-      );
-      throw err;
-    }
-  };
-
-  handleLoadSavedQuery = (savedQuery: any) => {
-    const q = savedQuery?.attributes?.query?.query;
-    let queryText = '';
-
-    if (typeof q === 'string') {
-      queryText = q;
-      this.formikRef.current?.setFieldValue('pplQuery', q);
-    } else if (q != null) {
-      queryText = JSON.stringify(q, null, 2);
-      this.formikRef.current?.setFieldValue('pplQuery', queryText);
-    }
-
-    try {
-      const queryString = this.props.services?.data?.query?.queryString;
-      if (queryString && queryText) {
-        queryString.setQuery({
-          query: queryText,
-          language: 'PPL',
-        });
-      }
-    } catch (err) {
-      console.error('[handleLoadSavedQuery] Error updating queryString service:', err);
-    }
-
-    this.setState({ savedQueriesPopoverOpen: false });
   };
 
   handleSubmit = async (values: any, formikBag: any) => {
@@ -563,91 +492,17 @@ export class CreateMonitorFlyout extends Component<FlyoutComponentProps, CreateM
     <>
       <EuiFlexGroup alignItems="center" justifyContent="spaceBetween" gutterSize="s" responsive={false}>
         <EuiFlexItem grow={false}>
-          <EuiFlexGroup alignItems="center" gutterSize="s" responsive={false}>
+          <EuiFlexGroup alignItems="center" gutterSize="xs" responsive={false}>
             <EuiFlexItem grow={false}>
-              <EuiFlexGroup alignItems="center" gutterSize="xs" responsive={false}>
-                <EuiFlexItem grow={false}>
-                  <EuiText>PPL</EuiText>
-                </EuiFlexItem>
-                <EuiFlexItem grow={false}>
-                  <EuiIconTip
-                    type="iInCircle"
-                    content="Write queries in PPL. Use Saved queries for saved or example queries."
-                    position="left"
-                    iconProps={{ style: { border: 'none', background: 'none' } }}
-                  />
-                </EuiFlexItem>
-              </EuiFlexGroup>
+              <EuiText>PPL</EuiText>
             </EuiFlexItem>
-
             <EuiFlexItem grow={false}>
-              <div style={{ width: '1px', height: '16px', backgroundColor: '#d3dae6', margin: '0 8px' }} />
-            </EuiFlexItem>
-
-            <EuiFlexItem grow={false}>
-              <EuiPopover
-                isOpen={this.state.savedQueriesPopoverOpen}
-                closePopover={() => this.setState({ savedQueriesPopoverOpen: false })}
-                anchorPosition="downLeft"
-                panelPaddingSize="none"
-                button={
-                  <EuiButtonEmpty
-                    size="s"
-                    iconType={this.state.savedQueriesPopoverOpen ? 'arrowUp' : 'arrowDown'}
-                    iconSide="right"
-                    onClick={async () => {
-                      try {
-                        const queryString = this.props.services?.data?.query?.queryString;
-                        if (queryString) {
-                          try {
-                            queryString.getQuery();
-                          } catch (getErr) {
-                            let dataset = undefined;
-                            try {
-                              const dataViews = this.props.services?.data?.dataViews;
-                              if (dataViews) {
-                                const defaultDataView = await dataViews.getDefault();
-                                if (defaultDataView) {
-                                  dataset = dataViews.convertToDataset(defaultDataView);
-                                }
-                              }
-                            } catch (datasetErr) {
-                              console.error('[Saved Queries] Error getting dataset:', datasetErr);
-                            }
-
-                            queryString.setQuery({
-                              query: this.formikRef.current?.values?.pplQuery || '',
-                              language: 'PPL',
-                              dataset: dataset,
-                            });
-                          }
-                        }
-                      } catch (err) {
-                        console.error('[Saved Queries] Error ensuring query is set:', err);
-                      }
-
-                      this.setState((s) => ({ savedQueriesPopoverOpen: !s.savedQueriesPopoverOpen }));
-                    }}
-                    data-test-subj="savedQueriesButton"
-                  >
-                    Saved queries
-                  </EuiButtonEmpty>
-                }
-              >
-                <div style={{ width: 200, maxWidth: '60vw', padding: 8 }}>
-                  <SavedQueryManagementComponent
-                    savedQueryService={this.getSavedQueryService()}
-                    onLoad={this.handleLoadSavedQuery}
-                    onClearSavedQuery={() => this.setState({ savedQueriesPopoverOpen: false })}
-                    showSaveQuery={false}
-                    saveQuery={this.handleSaveQuery}
-                    useNewSavedQueryUI={true}
-                    closeMenuPopover={() => this.setState({ savedQueriesPopoverOpen: false })}
-                    onInitiateSave={() => {}}
-                    onInitiateSaveAsNew={() => {}}
-                  />
-                </div>
-              </EuiPopover>
+              <EuiIconTip
+                type="iInCircle"
+                content="Write queries in PPL."
+                position="left"
+                iconProps={{ style: { border: 'none', background: 'none' } }}
+              />
             </EuiFlexItem>
           </EuiFlexGroup>
         </EuiFlexItem>
