@@ -33,6 +33,7 @@ import {
   EuiEmptyPrompt,
   EuiCodeBlock,
   EuiSmallButton,
+  EuiLink,
 } from '@elastic/eui';
 import { Formik, FieldArray } from 'formik';
 import { Provider } from 'react-redux';
@@ -970,7 +971,9 @@ export class CreateMonitorFlyout extends Component<FlyoutComponentProps, CreateM
               />
             </EuiFormRow>
             <EuiText size="xs" color="subdued">
-              Use cron expressions for complex schedules
+              <EuiLink href="https://docs.opensearch.org/latest/observing-your-data/alerting/cron/" external>
+                Use cron expressions for complex schedules
+              </EuiLink>
             </EuiText>
             <EuiSpacer size="m" />
           </>
