@@ -206,12 +206,17 @@ export const AlertingVisualGraph: React.FC<AlertingVisualGraphProps> = ({
 
 
   // Create threshold line annotation if threshold value is provided
-  const lineAnnotationData = thresholdValue && typeof thresholdValue === 'number' && !isNaN(thresholdValue) ? [
-    {
-      dataValue: thresholdValue,
-      details: `Threshold: ${thresholdValue.toLocaleString()}`,
-    }
-  ] : [];
+  const hasThreshold =
+    typeof thresholdValue === 'number' && !isNaN(thresholdValue);
+
+  const lineAnnotationData = hasThreshold
+    ? [
+        {
+          dataValue: thresholdValue,
+          details: `Threshold: ${thresholdValue.toLocaleString()}`,
+        },
+      ]
+    : [];
 
   if (data.length === 0) {
     return (
@@ -300,7 +305,7 @@ export const AlertingVisualGraph: React.FC<AlertingVisualGraphProps> = ({
                 ticks={10}
                 tickFormat={formatXValue}
               />
-              {thresholdValue && lineAnnotationData.length > 0 && (
+              {hasThreshold && lineAnnotationData.length > 0 && (
                 <LineAnnotation
                   id="threshold-line"
                   domainType={AnnotationDomainType.YDomain}
