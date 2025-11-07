@@ -92,6 +92,9 @@ export class AlertingPlugin {
       alertingDashboards: {
         pplV2: defaultPplEnabled,
       },
+      alerting: {
+        pplV2: defaultPplEnabled,
+      },
     }));
 
     core.capabilities.registerSwitcher(async (request) => {
@@ -101,6 +104,9 @@ export class AlertingPlugin {
       );
       return {
         alertingDashboards: {
+          pplV2: pplEnabled,
+        },
+        alerting: {
           pplV2: pplEnabled,
         },
       };

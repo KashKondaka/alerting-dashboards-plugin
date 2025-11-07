@@ -45,7 +45,8 @@ import {
   LOOKBACK_WINDOW_MIN_MINUTES,
 } from '../../pages/CreateMonitor/containers/CreateMonitor/utils/constants';
 import { formikToMonitor } from '../../pages/CreateMonitor/containers/CreateMonitor/utils/formikToMonitor';
-import { getClient, setDataSource, NotificationService } from '../../services';
+import { getClient, setDataSource, NotificationService, isPplV2Enabled } from '../../services';
+import type { QueryPanelActionDependencies } from '../../../../../src/plugins/explore/public/services/query_panel_actions_registry';
 import { backendErrorNotification } from '../../utils/helpers';
 import { MONITOR_TYPE, SEARCH_TYPE } from '../../utils/constants';
 import CustomSteps from '../../pages/CreateMonitor/components/CustomSteps';
@@ -67,11 +68,7 @@ import { getAlertingStore } from '../../redux/store';
 // Import type from explore plugin
 type FlyoutComponentProps = {
   closeFlyout: () => void;
-  dependencies: {
-    query: any;
-    resultStatus: any;
-    queryInEditor: string;
-  };
+  dependencies: QueryPanelActionDependencies;
   services: any;
 };
 
@@ -89,6 +86,7 @@ type CreateMonitorFlyoutState = {
   dateFieldsError: string | null;
   plugins: any[];
   pluginsLoading: boolean;
+  featureAvailable: boolean;
 };
 
 
@@ -101,6 +99,13 @@ export class CreateMonitorFlyout extends Component<FlyoutComponentProps, CreateM
 
   constructor(props: FlyoutComponentProps) {
     super(props);
+
+    let featureAvailable = false;
+    try {
+      featureAvailable = isPplV2Enabled();
+    } catch (err) {
+      featureAvailable = false;
+    }
 
     this.state = {
       isSubmitting: false,
@@ -116,6 +121,7 @@ export class CreateMonitorFlyout extends Component<FlyoutComponentProps, CreateM
       dateFieldsError: null,
       plugins: [],
       pluginsLoading: true,
+      featureAvailable,
     };
 
     // Initialize Redux store for QueryEditor
@@ -132,10 +138,14 @@ export class CreateMonitorFlyout extends Component<FlyoutComponentProps, CreateM
   }
 
   async componentDidMount() {
+    if (!this.state.featureAvailable) {
+      return;
+    }
+
     const { services, dependencies } = this.props;
 
     // Set data source before making any API calls that use getDataSourceQueryObj()
-    const dataSourceId = dependencies.query.dataset?.dataSource?.id || '';
+    const dataSourceId = dependencies.query?.dataset?.dataSource?.id || '';
     setDataSource({ dataSourceId: dataSourceId });
 
     // Initialize query in queryString service
@@ -159,9 +169,9 @@ export class CreateMonitorFlyout extends Component<FlyoutComponentProps, CreateM
 
         const dataset = await getDefaultDataset();
         queryString.setQuery({
-          query: this.props.dependencies.queryInEditor || '',
+          query: this.props.dependencies.query?.query || '',
           language: 'PPL',
-          dataset: dataset,
+          dataset: dataset ?? this.props.dependencies.query?.dataset,
         });
       }
     } catch (e) {
@@ -193,7 +203,7 @@ export class CreateMonitorFlyout extends Component<FlyoutComponentProps, CreateM
 
     // Detect timestamp fields from initial PPL query (with slight delay to ensure Formik is ready)
     // Clean up backticks from the query (Explore plugin adds them)
-    const rawQuery = this.props.dependencies.queryInEditor || '';
+    const rawQuery = this.props.dependencies.query?.query || '';
     if (rawQuery) {
       setTimeout(() => {
         this.detectTimestampFields(rawQuery);
@@ -202,9 +212,13 @@ export class CreateMonitorFlyout extends Component<FlyoutComponentProps, CreateM
   }
 
   fetchInitialIndices = async () => {
+    if (!this.state.featureAvailable) {
+      return;
+    }
+
     const httpClient = getClient();
     const { dependencies } = this.props;
-    const dsId = dependencies.query.dataset?.dataSource?.id;
+    const dsId = dependencies.query?.dataset?.dataSource?.id;
 
     try {
       const resp = dsId
@@ -219,6 +233,10 @@ export class CreateMonitorFlyout extends Component<FlyoutComponentProps, CreateM
   };
 
   detectTimestampFields = async (pplQuery: string) => {
+    if (!this.state.featureAvailable) {
+      return;
+    }
+
     const httpClient = getClient();
     const { dependencies } = this.props;
 
@@ -239,7 +257,7 @@ export class CreateMonitorFlyout extends Component<FlyoutComponentProps, CreateM
     this.setState({ dateFieldsLoading: true, dateFieldsError: null });
 
     try {
-      const dataSourceId = dependencies.query.dataset?.dataSource?.id;
+      const dataSourceId = dependencies.query?.dataset?.dataSource?.id;
       const { commonDateFields, error } = await findCommonDateFields(
         httpClient,
         indices,
@@ -283,13 +301,18 @@ export class CreateMonitorFlyout extends Component<FlyoutComponentProps, CreateM
 
   handleSubmit = async (values: any, formikBag: any) => {
     const { services, closeFlyout, dependencies } = this.props;
+    if (!this.state.featureAvailable) {
+      this.setState({ submitError: 'PPL-based alerting is disabled.' });
+      return;
+    }
     this.setState({ isSubmitting: true, submitError: null });
 
     try {
       const httpClient = getClient();
       const api = makeAlertingV2Service(httpClient);
       const body = buildPPLMonitorFromFormik(values);
-      const dataSourceId = values.dataSourceId || dependencies.query.dataset?.dataSource?.id;
+      const dataSourceId =
+        values.dataSourceId || dependencies.query?.dataset?.dataSource?.id;
 
       // Create the monitor and capture the response to get the monitor ID
       const response = await api.createMonitor(body, { dataSourceId });
@@ -299,8 +322,12 @@ export class CreateMonitorFlyout extends Component<FlyoutComponentProps, CreateM
       const monitorId = response?._id || response?.monitor_id || response?.id;
       // Build the monitors list page URL by replacing /app/explore with /app/monitors
       const currentUrl = window.location.href;
-      const monitorsListUrl = currentUrl
-        .replace(/\/app\/explore.*$/, `/app/monitors#/monitors?dataSourceId=${dataSourceId || ''}&from=0&search=&size=20&sortDirection=desc&sortField=name&state=all`);
+      const monitorsListUrl = currentUrl.replace(
+        /\/app\/explore.*$/,
+        `/app/monitors#/monitors?dataSourceId=${
+          dataSourceId || ''
+        }&from=0&search=&size=20&sortDirection=desc&sortField=name&state=all`
+      );
 
         // Show success toast with clickable link to monitors list
       services.notifications.toasts.addSuccess({
@@ -527,7 +554,8 @@ export class CreateMonitorFlyout extends Component<FlyoutComponentProps, CreateM
               try {
                 const data = await runPPLPreview(httpClient, {
                   queryText: values.pplQuery || '',
-                  dataSourceId: values.dataSourceId || this.props.dependencies.query.dataset?.dataSource?.id,
+                  dataSourceId:
+                    values.dataSourceId || this.props.dependencies.query?.dataset?.dataSource?.id,
                 });
                 this.setState({
                   previewResult: data,
@@ -873,21 +901,42 @@ export class CreateMonitorFlyout extends Component<FlyoutComponentProps, CreateM
 
   render() {
     const { closeFlyout, dependencies, services } = this.props;
-    const { isSubmitting, submitError, plugins, pluginsLoading } = this.state;
+    const { isSubmitting, submitError, plugins, pluginsLoading, featureAvailable } = this.state;
+
+    if (!featureAvailable) {
+      return (
+        <EuiFlyout onClose={closeFlyout} size="m" aria-labelledby="ppl-disabled-title">
+          <EuiFlyoutBody>
+            <EuiEmptyPrompt
+              iconType="iInCircle"
+              title={<h3 id="ppl-disabled-title">PPL alerting unavailable</h3>}
+              body={
+                <p>
+                  Create monitor from Explore is disabled because PPL-based alerting is not enabled
+                  for this account. If you believe this is in error, contact your administrator.
+                </p>
+              }
+            />
+          </EuiFlyoutBody>
+        </EuiFlyout>
+      );
+    }
 
     // Clean up the query by removing backticks from index names
     // Explore plugin adds backticks like: source = `test` but we need: source = test
-    const cleanQuery = (dependencies.queryInEditor || '').replace(/`([^`]+)`/g, '$1');
+    const cleanQuery = (dependencies.query?.query || '').replace(/`([^`]+)`/g, '$1');
 
     const initialValues = {
       ..._.cloneDeep(FORMIK_INITIAL_VALUES),
-      pplQuery: dependencies.queryInEditor || '',
+      pplQuery: dependencies.query?.query || '',
       monitor_mode: 'ppl',
       searchType: SEARCH_TYPE.QUERY,
       monitor_type: MONITOR_TYPE.QUERY_LEVEL,
-      dataSourceId: dependencies.query.dataset?.dataSource?.id || '',
+      dataSourceId: dependencies.query?.dataset?.dataSource?.id || '',
       name: '', // Don't auto-populate, let user enter a meaningful name
-      index: dependencies.query.dataset?.title ? [{ label: dependencies.query.dataset.title }] : [],
+      index: dependencies.query?.dataset?.title
+        ? [{ label: dependencies.query?.dataset?.title }]
+        : [],
       useLookBackWindow: true,
       lookBackAmount: 1,
       lookBackUnit: 'hours',

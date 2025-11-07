@@ -5,6 +5,33 @@
 
 import { FEATURE_FLAGS } from './utils/constants';
 
+const normalizeFlagValue = (value) => {
+  if (typeof value === 'boolean') {
+    return value;
+  }
+  if (typeof value === 'string') {
+    const lowered = value.trim().toLowerCase();
+    if (lowered === 'true') {
+      return true;
+    }
+    if (lowered === 'false') {
+      return false;
+    }
+  }
+  if (typeof value === 'number') {
+    if (Number.isNaN(value)) {
+      return false;
+    }
+    if (value === 0) {
+      return false;
+    }
+    if (value === 1) {
+      return true;
+    }
+  }
+  return Boolean(value);
+};
+
 export class FeatureFlagService {
   constructor(coreSetup, logger, options = {}) {
     this.coreSetup = coreSetup;
@@ -16,7 +43,7 @@ export class FeatureFlagService {
 
   getDefault(flag) {
     if (this.defaults?.hasOwnProperty(flag)) {
-      return Boolean(this.defaults[flag]);
+      return normalizeFlagValue(this.defaults[flag]);
     }
     if (flag === FEATURE_FLAGS.PPL_MONITOR) {
       return false;
@@ -84,7 +111,7 @@ export class FeatureFlagService {
   async isFeatureEnabled(request, flag) {
     const config = await this.getConfigFromDynamicStore(request);
     if (config && Object.prototype.hasOwnProperty.call(config, flag)) {
-      return Boolean(config[flag]);
+      return normalizeFlagValue(config[flag]);
     }
     return this.getDefault(flag);
   }
@@ -94,11 +121,11 @@ export class FeatureFlagService {
     const config = await this.getConfigFromDynamicStore(request);
 
     for (const flag of flags) {
-      if (config && Object.prototype.hasOwnProperty.call(config, flag)) {
-        status[flag] = Boolean(config[flag]);
-      } else {
-        status[flag] = this.getDefault(flag);
-      }
+      const value =
+        config && Object.prototype.hasOwnProperty.call(config, flag)
+          ? config[flag]
+          : this.getDefault(flag);
+      status[flag] = normalizeFlagValue(value);
     }
 
     return status;
