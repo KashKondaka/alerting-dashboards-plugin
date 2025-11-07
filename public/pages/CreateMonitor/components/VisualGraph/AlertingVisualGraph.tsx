@@ -143,18 +143,8 @@ export const AlertingVisualGraph: React.FC<AlertingVisualGraphProps> = ({
     console.log('Time filter update:', ranges);
   }, []);
 
-  // Create fallback mock data if no real data
-  const mockData = useMemo(() => {
-    const now = Date.now();
-    const hourMs = 60 * 60 * 1000;
-    return Array.from({ length: 24 }, (_, i) => ({
-      x: now - (23 - i) * hourMs,
-      y: Math.floor(Math.random() * 100) + 10,
-    }));
-  }, []);
-
-  const dataToUse = chartData?.values?.length > 0 ? chartData.values : mockData;
-  const hasRealData = chartData?.values?.length > 0;
+  const dataToUse = chartData?.values ?? [];
+  const hasRealData = dataToUse.length > 0;
 
   // Validate and clean data - memoize to avoid recalculation
   const data = useMemo(() => dataToUse.filter(item => 
@@ -182,23 +172,31 @@ export const AlertingVisualGraph: React.FC<AlertingVisualGraphProps> = ({
     const yValues = data.map(d => d.y).filter(y => y != null && !isNaN(y));
     const dMax = Math.max(...yValues, 0);
     
-    // Use threshold value as the Y-axis max (if provided), otherwise use data max with padding
-    let yMax = dMax;
-    if (thresholdValue && typeof thresholdValue === 'number' && !isNaN(thresholdValue) && thresholdValue > 0) {
-      yMax = thresholdValue;
-    } else {
-      // Add padding only if no threshold is set
-      yMax = dMax + Math.max(1, Math.ceil(dMax * 0.1));
-    }
-    
+    const thresholdNumeric =
+      typeof thresholdValue === 'number' && !isNaN(thresholdValue) && thresholdValue > 0
+        ? thresholdValue
+        : 0;
+
+    let yMax = Math.max(dMax, thresholdNumeric);
+    const padding = Math.max(1, Math.ceil(yMax * 0.1));
+    yMax = Math.max(yMax + padding, 1);
+
     const yDom = {
-      min: 0, // Always start from 0
-      max: Math.max(yMax, 1), // Ensure at least 1 to avoid 0 scale
+      min: 0,
+      max: yMax,
     };
 
     return { xDomain: xDom, yDomain: yDom, dataMax: dMax };
   }, [data, thresholdValue]);
-  
+
+  const yTickValues = useMemo(() => {
+    const max = yDomain?.max ?? 0;
+    if (!max || max <= 0) return [];
+    const steps = 4;
+    const step = max / steps;
+    return Array.from({ length: steps }, (_, idx) => Math.round((idx + 1) * step));
+  }, [yDomain.max]);
+
   // Notify parent of the max Y value from data (for setting default threshold)
   React.useEffect(() => {
     if (onMaxYValueCalculated && dataMax > 0) {
@@ -249,8 +247,8 @@ export const AlertingVisualGraph: React.FC<AlertingVisualGraphProps> = ({
   };
 
   const formatYValue = (value: number) => {
-    if (typeof value !== 'number' || isNaN(value)) return '';
-    if (value <= 0) return '';
+    if (typeof value !== 'number' || isNaN(value)) return '\u00A0';
+    if (value <= 0) return '\u00A0';
     return value.toLocaleString();
   };
 
@@ -290,9 +288,10 @@ export const AlertingVisualGraph: React.FC<AlertingVisualGraphProps> = ({
                 id="alerting-histogram-left-axis"
                 position={Position.Left}
                 title="Count"
-                ticks={5}
+                ticks={yTickValues.length || 5}
                 tickFormat={formatYValue}
                 domain={yDomain}
+                tickValues={yTickValues}
               />
               <Axis
                 id="alerting-histogram-bottom-axis"
