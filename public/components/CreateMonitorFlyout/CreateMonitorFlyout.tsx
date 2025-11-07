@@ -832,7 +832,7 @@ export class CreateMonitorFlyout extends Component<FlyoutComponentProps, CreateM
         {useLB && !(dateFieldsError && availableDateFields.length === 0) && (
           <>
             <EuiFormRow
-              label="Look back from"
+              label="look back from"
               fullWidth
               style={{ marginLeft: '-6px', maxWidth: '720px' }}
               isInvalid={lbError}
