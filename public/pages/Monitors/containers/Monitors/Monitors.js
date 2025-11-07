@@ -6,8 +6,8 @@
 import React, { Component } from 'react';
 import _ from 'lodash';
 import queryString from 'query-string';
-import { 
-  EuiBasicTable, 
+import {
+  EuiBasicTable,
   EuiButtonGroup,
   EuiSpacer,
   EuiFlexGroup,
@@ -31,7 +31,7 @@ import {
   isDataSourceChanged,
   getDataSourceId,
 } from '../../../utils/helpers';
-import { getUseUpdatedUx } from '../../../../services';
+import { getUseUpdatedUx, isPplAlertingEnabled } from '../../../../services';
 
 const MAX_MONITOR_COUNT = 1000;
 
@@ -44,15 +44,25 @@ export default class Monitors extends Component {
       this.props.location
     );
 
+    this.pplEnabled = isPplAlertingEnabled();
+
     // Initialize viewMode from localStorage, default to 'new'
-    let initialViewMode = 'new';
-    try {
-      const stored = localStorage.getItem('alerting_monitors_view_mode');
-      if (stored === 'classic' || stored === 'new') {
-        initialViewMode = stored;
+    let initialViewMode = this.pplEnabled ? 'new' : 'classic';
+    if (this.pplEnabled) {
+      try {
+        const stored = localStorage.getItem('alerting_monitors_view_mode');
+        if (stored === 'classic' || stored === 'new') {
+          initialViewMode = stored;
+        }
+      } catch (e) {
+        console.error('Error reading viewMode from localStorage:', e);
       }
-    } catch (e) {
-      console.error('Error reading viewMode from localStorage:', e);
+    } else {
+      try {
+        localStorage.setItem('alerting_monitors_view_mode', 'classic');
+      } catch (e) {
+        // ignore storage errors
+      }
     }
 
     this.state = {
@@ -99,20 +109,27 @@ export default class Monitors extends Component {
     this.buildColumns = this.buildColumns.bind(this);
   }
 
+  getEffectiveViewMode() {
+    return this.pplEnabled ? this.state.viewMode : 'classic';
+  }
+
   // Build columns based on view mode
   buildColumns() {
-    const { viewMode } = this.state;
-    
+    const viewMode = this.getEffectiveViewMode();
+
     // In "New" mode, hide certain columns
     // In "Classic" mode, show all columns
-    const HIDDEN_COLS = viewMode === 'new' ? new Set([
-      'Active',
-      'Acknowledged',
-      'Errors',
-      'Ignored',
-      'Associations with composite monitors',
-    ]) : new Set();
-    
+    const HIDDEN_COLS =
+      viewMode === 'new'
+        ? new Set([
+            'Active',
+            'Acknowledged',
+            'Errors',
+            'Ignored',
+            'Associations with composite monitors',
+          ])
+        : new Set();
+
     return [
       ...staticColumns.filter((c) => !HIDDEN_COLS.has(c.name)),
       {
@@ -194,13 +211,12 @@ export default class Monitors extends Component {
         ...(dataSourceId !== undefined && { dataSourceId }), // Only include dataSourceId if it exists
         ...params, // Other parameters
       };
-      
+
       // Call different API based on view mode
-      const { viewMode } = this.state;
-      const apiPath = viewMode === 'classic' 
-        ? '../api/alerting/monitors/v1'  // v1 API for classic view
-        : '../api/alerting/monitors';     // v2 API for new view
-      
+      const viewMode = this.getEffectiveViewMode();
+      const apiPath =
+        viewMode === 'classic' ? '../api/alerting/monitors' : '../api/alerting/v2/monitors';
+
       const response = await httpClient.get(apiPath, { query: extendedParams });
       if (response.ok) {
         let monitors = [];
@@ -218,9 +234,7 @@ export default class Monitors extends Component {
               h._id ||
               '';
             const enabled =
-              typeof ppl.enabled === 'boolean'
-                ? ppl.enabled
-                : Boolean(srcMon.enabled);
+              typeof ppl.enabled === 'boolean' ? ppl.enabled : Boolean(srcMon.enabled);
             return {
               id: h._id,
               name,
@@ -228,10 +242,7 @@ export default class Monitors extends Component {
               monitor: srcMon,
               ifSeqNo: h._seq_no,
               ifPrimaryTerm: h._primary_term,
-              item_type:
-                srcMon.workflow_type ||
-                srcMon.monitor_type ||
-                MONITOR_TYPE.QUERY_LEVEL,
+              item_type: srcMon.workflow_type || srcMon.monitor_type || MONITOR_TYPE.QUERY_LEVEL,
               associatedCompositeMonitorCnt: 0,
               currentTime: now,
             };
@@ -246,10 +257,7 @@ export default class Monitors extends Component {
               (typeof ppl.name === 'string' && ppl.name) ||
               (typeof m.name === 'string' && m.name) ||
               m.id;
-            const enabled =
-              typeof ppl.enabled === 'boolean'
-                ? ppl.enabled
-                : Boolean(m.enabled);
+            const enabled = typeof ppl.enabled === 'boolean' ? ppl.enabled : Boolean(m.enabled);
             return {
               id: m.id,
               name,
@@ -257,10 +265,7 @@ export default class Monitors extends Component {
               monitor: srcMon,
               ifSeqNo: m.ifSeqNo,
               ifPrimaryTerm: m.ifPrimaryTerm,
-              item_type:
-                srcMon.monitor_type ||
-                m.item_type ||
-                MONITOR_TYPE.QUERY_LEVEL,
+              item_type: srcMon.monitor_type || m.item_type || MONITOR_TYPE.QUERY_LEVEL,
               associatedCompositeMonitorCnt: m.associatedCompositeMonitorCnt || 0,
               currentTime: now,
             };
@@ -347,10 +352,16 @@ export default class Monitors extends Component {
             {}
         );
 
-        const cleanedPplMonitor = _.omit(
-          { ...basePplMonitor, ...update },
-          ['id', '_id', 'item_type', 'monitor_type', 'version', '_version', 'ifSeqNo', 'ifPrimaryTerm']
-        );
+        const cleanedPplMonitor = _.omit({ ...basePplMonitor, ...update }, [
+          'id',
+          '_id',
+          'item_type',
+          'monitor_type',
+          'version',
+          '_version',
+          'ifSeqNo',
+          'ifPrimaryTerm',
+        ]);
 
         if (Array.isArray(cleanedPplMonitor.triggers)) {
           cleanedPplMonitor.triggers = cleanedPplMonitor.triggers.map((trigger) =>
@@ -372,10 +383,16 @@ export default class Monitors extends Component {
           .catch((err) => err);
       }
 
-      const legacyPayload = _.omit(
-        { ...monitorDetail, ...update },
-        ['id', '_id', 'item_type', 'currentTime', 'version', '_version', 'ifSeqNo', 'ifPrimaryTerm']
-      );
+      const legacyPayload = _.omit({ ...monitorDetail, ...update }, [
+        'id',
+        '_id',
+        'item_type',
+        'currentTime',
+        'version',
+        '_version',
+        'ifSeqNo',
+        'ifPrimaryTerm',
+      ]);
 
       return httpClient
         .put(`../api/alerting/monitors/${item.id}`, {
@@ -409,7 +426,7 @@ export default class Monitors extends Component {
 
   async deleteMonitors(items) {
     const { httpClient, notifications } = this.props;
-    
+
     const arrayOfPromises = items.map((item) =>
       deleteMonitor(item, httpClient, notifications, getDataSourceQueryObj()).catch(
         (error) => error
@@ -630,8 +647,8 @@ export default class Monitors extends Component {
     };
 
     const useUpdatedUx = getUseUpdatedUx();
-    const { viewMode } = this.state;
-    
+    const viewMode = this.getEffectiveViewMode();
+
     const monitorActions = (
       <MonitorActions
         isEditDisabled={selectedItems.length !== 1}
@@ -645,16 +662,23 @@ export default class Monitors extends Component {
       />
     );
 
-    const toggleButtons = [
-      {
-        id: 'new',
-        label: 'New',
-      },
-      {
-        id: 'classic',
-        label: 'Classic',
-      },
-    ];
+    const toggleButtons = this.pplEnabled
+      ? [
+          {
+            id: 'new',
+            label: 'New',
+          },
+          {
+            id: 'classic',
+            label: 'Classic',
+          },
+        ]
+      : [
+          {
+            id: 'classic',
+            label: 'Classic',
+          },
+        ];
 
     return (
       <>
@@ -676,30 +700,33 @@ export default class Monitors extends Component {
                           <h1>Monitors</h1>
                         </EuiTitle>
                       </EuiFlexItem>
-                      <EuiFlexItem grow={false}>
-                        <EuiButtonGroup
-                          legend="Monitor view toggle"
-                          options={toggleButtons}
-                          idSelected={viewMode}
-                          onChange={(id) => {
-                            this.setState({ viewMode: id });
-                            // Persist viewMode to localStorage so MonitorDetails can use it
-                            try {
-                              localStorage.setItem('alerting_monitors_view_mode', id);
-                            } catch (e) {
-                              console.error('Error saving viewMode to localStorage:', e);
-                            }
-                          }}
-                          buttonSize="compressed"
-                          color="text"
-                          isFullWidth={false}
-                        />
-                      </EuiFlexItem>
+                      {this.pplEnabled && (
+                        <EuiFlexItem grow={false}>
+                          <EuiButtonGroup
+                            legend="Monitor view toggle"
+                            options={toggleButtons}
+                            idSelected={viewMode}
+                            onChange={(id) => {
+                              if (!this.pplEnabled) {
+                                return;
+                              }
+                              this.setState({ viewMode: id });
+                              // Persist viewMode to localStorage so MonitorDetails can use it
+                              try {
+                                localStorage.setItem('alerting_monitors_view_mode', id);
+                              } catch (e) {
+                                console.error('Error saving viewMode to localStorage:', e);
+                              }
+                            }}
+                            buttonSize="compressed"
+                            color="text"
+                            isFullWidth={false}
+                          />
+                        </EuiFlexItem>
+                      )}
                     </EuiFlexGroup>
                   </EuiFlexItem>
-                  <EuiFlexItem grow={false}>
-                    {monitorActions}
-                  </EuiFlexItem>
+                  <EuiFlexItem grow={false}>{monitorActions}</EuiFlexItem>
                 </EuiFlexGroup>
               </div>
               <EuiSpacer size="m" />
