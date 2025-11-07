@@ -183,13 +183,11 @@ export class CreateMonitorFlyout extends Component<FlyoutComponentProps, CreateM
     // Detect timestamp fields from initial PPL query (with slight delay to ensure Formik is ready)
     // Clean up backticks from the query (Explore plugin adds them)
     const rawQuery = this.props.dependencies.queryInEditor || '';
-    const cleanQuery = rawQuery.replace(/`([^`]+)`/g, '$1');
     
-    if (cleanQuery) {
+    if (rawQuery) {
       console.log('[CreateMonitorFlyout] Raw PPL query:', rawQuery);
-      console.log('[CreateMonitorFlyout] Cleaned PPL query:', cleanQuery);
       setTimeout(() => {
-        this.detectTimestampFields(cleanQuery);
+        this.detectTimestampFields(rawQuery);
       }, 300);
     }
   }
@@ -987,7 +985,7 @@ export class CreateMonitorFlyout extends Component<FlyoutComponentProps, CreateM
 
     const initialValues = {
       ..._.cloneDeep(FORMIK_INITIAL_VALUES),
-      pplQuery: cleanQuery,
+      pplQuery: dependencies.queryInEditor || '',
       monitor_mode: 'ppl',
       searchType: SEARCH_TYPE.QUERY,
       monitor_type: MONITOR_TYPE.QUERY_LEVEL,

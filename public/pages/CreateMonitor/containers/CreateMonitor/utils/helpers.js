@@ -703,20 +703,18 @@ const buildLookBackFromFormik = (values) => {
  */
 export const extractIndicesFromPPL = (pplQuery) => {
   if (!pplQuery || typeof pplQuery !== 'string') return [];
-  
-  // Regex to match: source=index1,index2,index3 (case insensitive with 'i' flag)
-  const regex = /source(?:\s*)=(?:\s*)([-\w.*'+]+(?:\*)?(?:\s*,\s*[-\w.*'+]+\*?)*)\s*\|*/i;
+
+  // Regex supports backtick-wrapped or plain index names, e.g. source=`foo`,`bar` or source=foo,bar
+  const regex = /source\s*=\s*((?:`[^`]+`|[-\w.*'+]+)(?:\s*,\s*(?:`[^`]+`|[-\w.*'+]+))*)/i;
   const match = pplQuery.match(regex);
-  
+
   if (!match || !match[1]) return [];
-  
-  // Split by comma and trim each index name
-  const indices = match[1]
+
+  return match[1]
     .split(',')
     .map((idx) => idx.trim())
+    .map((idx) => (idx.startsWith('`') && idx.endsWith('`') ? idx.slice(1, -1) : idx))
     .filter(Boolean);
-  
-  return indices;
 };
 
 /**
