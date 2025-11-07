@@ -20,7 +20,7 @@ import {
   EuiText,
   EuiToolTip,
   EuiSmallButtonIcon,
-  EuiCodeBlock,
+  EuiInMemoryTable,
 } from '@elastic/eui';
 import { getTime } from '../../../../pages/MonitorDetails/components/MonitorOverview/utils/getOverviewStats';
 import {
@@ -45,7 +45,6 @@ import {
 import DashboardControls from '../../../../pages/Dashboard/components/DashboardControls';
 import ContentPanel from '../../../ContentPanel';
 import { queryColumns } from '../../../../pages/Dashboard/utils/tableUtils';
-import { DEFAULT_PAGE_SIZE_OPTIONS } from '../../../../pages/Monitors/containers/Monitors/utils/constants';
 import queryString from 'query-string';
 import { MAX_ALERT_COUNT } from '../../../../pages/Dashboard/utils/constants';
 import {
@@ -63,9 +62,8 @@ import {
   getDataSourceId,
   getIsCommentsEnabled,
 } from '../../../../pages/utils/helpers';
-import { PplPreviewTable, pplRespToDocs } from '../../../../pages/CreateMonitor/components/PplPreviewTable/PplPreviewTable';
 
-export const DEFAULT_NUM_FLYOUT_ROWS = 10;
+export const DEFAULT_NUM_FLYOUT_ROWS = 5;
 
 export default class AlertsDashboardFlyoutComponent extends Component {
   constructor(props) {
@@ -99,11 +97,14 @@ export default class AlertsDashboardFlyoutComponent extends Component {
       tabId: TABLE_TAB_IDS.ALERTS.id,
       totalAlerts: 0,
       commentsEnabled: false,
-      itemIdToExpandedRowMap: {},
+      openResultPopoverId: null,
     };
+
+    this._isMounted = false;
   }
 
   componentDidMount() {
+    this._isMounted = true;
     const { alertState, page, search, severityLevel, size, sortDirection, sortField, monitorIds } =
       this.state;
     this.getAlerts(
@@ -118,10 +119,17 @@ export default class AlertsDashboardFlyoutComponent extends Component {
     );
     this.getLocalClusterName();
     getIsCommentsEnabled(this.props.httpClient).then((commentsEnabled) => {
+      if (!this._isMounted) {
+        return;
+      }
       this.setState({
         commentsEnabled,
       });
     });
+  }
+
+  componentWillUnmount() {
+    this._isMounted = false;
   }
 
   componentDidUpdate(_prevProps, prevState) {
@@ -171,8 +179,12 @@ export default class AlertsDashboardFlyoutComponent extends Component {
   };
 
   getLocalClusterName = async () => {
+    const localClusterName = await getLocalClusterName(this.props.httpClient);
+    if (!this._isMounted) {
+      return;
+    }
     this.setState({
-      localClusterName: await getLocalClusterName(this.props.httpClient),
+      localClusterName,
     });
   };
 
@@ -186,6 +198,9 @@ export default class AlertsDashboardFlyoutComponent extends Component {
   };
 
   getAlerts = async () => {
+    if (!this._isMounted) {
+      return;
+    }
     this.setState({ loading: true, tabContent: undefined });
     const {
       from,
@@ -226,23 +241,26 @@ export default class AlertsDashboardFlyoutComponent extends Component {
     if (viewMode === 'new') {
       // For v2/new mode, call the v2 API and filter by trigger_v2_id
       httpClient.get('/api/alerting/v2/monitors/alerts', { query: extendedParams })?.then((resp) => {
+        if (!this._isMounted) {
+          return;
+        }
         if (resp.ok) {
           const payload = resp.resp || resp;
           let allAlerts = [];
-          
+
           // v2 API returns: { alerts_v2: [...], total_alerts_v2: N }
           const alertsArray = payload?.alerts_v2 || payload?.alertV2s;
           if (Array.isArray(alertsArray)) {
             allAlerts = alertsArray;
           }
-          
+
           // Filter by trigger_v2_id (in v2, triggerID should be trigger_v2_id)
           const filteredAlerts = allAlerts.filter((a) => a.trigger_v2_id === triggerID);
-          
+
           this.setState({
             alerts: filteredAlerts,
             totalAlerts: filteredAlerts.length,
-            itemIdToExpandedRowMap: {},
+            openResultPopoverId: null,
           });
         } else {
           console.log('error getting v2 alerts:', resp);
@@ -253,13 +271,16 @@ export default class AlertsDashboardFlyoutComponent extends Component {
     } else {
       // For v1/classic mode, use the existing v1 API
       httpClient.get('../api/alerting/alerts', { query: extendedParams })?.then((resp) => {
+        if (!this._isMounted) {
+          return;
+        }
         if (resp.ok) {
           const { alerts } = resp;
           const filteredAlerts = _.filter(alerts, { trigger_id: triggerID });
           this.setState({
             alerts: filteredAlerts,
             totalAlerts: filteredAlerts.length,
-            itemIdToExpandedRowMap: {},
+            openResultPopoverId: null,
           });
         } else {
           console.log('error getting alerts:', resp);
@@ -318,6 +339,7 @@ export default class AlertsDashboardFlyoutComponent extends Component {
       size,
       sortField,
       sortDirection,
+      openResultPopoverId: null,
     });
 
     const { alerts } = this.props;
@@ -353,47 +375,70 @@ export default class AlertsDashboardFlyoutComponent extends Component {
     }
   };
 
-  toggleQueryResults = (alert) => {
-    if (!alert) return;
-    const itemId = this.getAlertItemId(alert);
-    if (!itemId) return;
-
-    this.setState((prevState) => {
-      const nextMap = { ...prevState.itemIdToExpandedRowMap };
-      if (nextMap[itemId]) {
-        delete nextMap[itemId];
-      } else {
-        nextMap[itemId] = this.renderQueryResultsPreview(alert);
-      }
-      return { itemIdToExpandedRowMap: nextMap };
-    });
+  toggleResultsPopover = (itemId) => {
+    this.setState((prevState) => ({
+      openResultPopoverId: prevState.openResultPopoverId === itemId ? null : itemId,
+    }));
   };
 
   renderQueryResultsPreview = (alert) => {
-    const docs = pplRespToDocs(alert?.query_results);
-    const queryText = alert?.query || DEFAULT_EMPTY_DATA;
+    const results = alert?.query_results;
+    const schema = Array.isArray(results?.schema) ? results.schema : [];
+    const dataRows = Array.isArray(results?.datarows) ? results.datarows : [];
+
+    if (!schema.length || !dataRows.length) {
+      return (
+        <EuiText size="s" color="subdued" data-test-subj={`alert-query-results-empty-${alert?.id}`}>
+          No results found.
+        </EuiText>
+      );
+    }
+
+    const columns = schema.map((col, index) => {
+      const fieldName = col?.name || `field_${index}`;
+      return {
+        field: fieldName,
+        name: fieldName,
+        render: (value) => {
+          if (value == null) return '-';
+          if (typeof value === 'number') return value.toLocaleString();
+          if (typeof value === 'object') {
+            try {
+              return JSON.stringify(value);
+            } catch (e) {
+              return String(value);
+            }
+          }
+          return String(value);
+        },
+      };
+    });
+
+    const items = dataRows.map((row, rowIdx) => {
+      const item = { id: rowIdx };
+      schema.forEach((col, colIdx) => {
+        const fieldName = col?.name || `field_${colIdx}`;
+        if (Array.isArray(row)) {
+          item[fieldName] = row[colIdx];
+        } else if (row && typeof row === 'object') {
+          item[fieldName] = row[fieldName];
+        } else {
+          item[fieldName] = row;
+        }
+      });
+      return item;
+    });
 
     return (
-      <div style={{ padding: '16px 24px' }} data-test-subj={`alert-query-results-${alert?.id}`}>
-        <EuiText size="s">
-          <strong>Query</strong>
-        </EuiText>
-        <EuiSpacer size="s" />
-        <EuiCodeBlock
-          language="ppl"
-          isCopyable
-          paddingSize="m"
-          fontSize="s"
-          overflowHeight={240}
-        >
-          {queryText}
-        </EuiCodeBlock>
-        <EuiSpacer size="m" />
-        <EuiText size="s">
-          <strong>Results</strong>
-        </EuiText>
-        <EuiSpacer size="s" />
-        <PplPreviewTable docs={docs} />
+      <div style={{ maxWidth: '100%' }} data-test-subj={`alert-query-results-${alert?.id}`}>
+        <EuiInMemoryTable
+          items={items}
+          columns={columns}
+          itemId="id"
+          pagination={{ pageSizeOptions: [5], initialPageSize: 5 }}
+          sorting={false}
+          isSelectable={false}
+        />
       </div>
     );
   };
@@ -416,7 +461,7 @@ export default class AlertsDashboardFlyoutComponent extends Component {
       sortField,
       totalAlerts,
       commentsEnabled,
-      itemIdToExpandedRowMap,
+      openResultPopoverId,
     } = this.state;
 
     const detectorId = _.get(monitor, MONITOR_INPUT_DETECTOR_ID);
@@ -447,22 +492,28 @@ export default class AlertsDashboardFlyoutComponent extends Component {
           },
           {
             field: 'query_results',
-            name: 'Query results',
+            name: '',
             align: 'right',
+            dataType: 'string',
             render: (_value, item) => {
-              const hasResults = !!(item?.query_results && Array.isArray(item.query_results?.datarows));
+              const hasResults = Array.isArray(item?.query_results?.datarows) && item.query_results.datarows.length;
               if (!hasResults) {
                 return <EuiText size="s" color="subdued">No results</EuiText>;
               }
-              const itemId = this.getAlertItemId(item);
-              const isExpanded = !!itemIdToExpandedRowMap[itemId];
+
+              const itemId = getItemId(item);
+              const isExpanded = openResultPopoverId === itemId;
+
               return (
                 <EuiSmallButton
                   size="s"
-                  onClick={() => this.toggleQueryResults(item)}
-                  data-test-subj={`toggle-query-results-${item?.id}`}
+                  iconType={isExpanded ? 'arrowDown' : 'arrowRight'}
+                  iconSide="left"
+                  onClick={() => this.toggleResultsPopover(itemId)}
+                  aria-expanded={isExpanded}
+                  data-test-subj={`toggle-results-${itemId}`}
                 >
-                  {isExpanded ? 'Hide results' : 'View results'}
+                  {isExpanded ? 'Hide results' : 'View query results'}
                 </EuiSmallButton>
               );
             },
@@ -531,24 +582,26 @@ export default class AlertsDashboardFlyoutComponent extends Component {
       return columns;
     };
 
+    const pageSize = size || 5;
+
     const pagination = {
       pageIndex: page,
-      pageSize: size,
+      pageSize,
       totalItemCount: totalAlerts,
-      pageSizeOptions: DEFAULT_PAGE_SIZE_OPTIONS,
+      pageSizeOptions: [5, 10, 20, 50],
     };
 
     const { viewMode = 'new' } = this.props;
     const isV2 = viewMode === 'new';
     
-    const selection = {
-      initialSelected: selectedItems,
-      onSelectionChange: this.onSelectionChange,
-      selectable: isV2 ? () => false : (item) => item.state === ALERT_STATE.ACTIVE,
-      selectableMessage: isV2 
-        ? undefined
-        : (selectable) => (selectable ? undefined : 'Only active alerts can be acknowledged.'),
-    };
+    const selection = !isV2
+      ? {
+          initialSelected: selectedItems,
+          onSelectionChange: this.onSelectionChange,
+          selectable: (item) => item.state === ALERT_STATE.ACTIVE,
+          selectableMessage: (selectable) => (selectable ? undefined : 'Only active alerts can be acknowledged.'),
+        }
+      : undefined;
 
     const sorting = {
       sort: {
@@ -586,7 +639,18 @@ export default class AlertsDashboardFlyoutComponent extends Component {
       return actions;
     };
 
-    const trimmedAlerts = alerts.slice(page * size, page * size + size);
+    const trimmedAlerts = alerts.slice(page * pageSize, page * pageSize + pageSize);
+    const expandedRowMap = trimmedAlerts.reduce((acc, alertItem) => {
+      const itemId = getItemId(alertItem);
+      if (openResultPopoverId === itemId) {
+        acc[itemId] = (
+          <div style={{ padding: '12px 24px' }}>
+            {this.renderQueryResultsPreview(alertItem)}
+          </div>
+        );
+      }
+      return acc;
+    }, {});
     return (
       <ContentPanel
         title={'Alerts'}
@@ -619,12 +683,12 @@ export default class AlertsDashboardFlyoutComponent extends Component {
           loading={loading}
           pagination={pagination}
           sorting={sorting}
-          isSelectable={selectable}
+          isSelectable={!isV2 && selectable}
           selection={selection}
           hasActions={true}
           onChange={this.onTableChange}
           noItemsMessage={loading ? 'Loading alerts...' : 'No alerts.'}
-          itemIdToExpandedRowMap={itemIdToExpandedRowMap}
+          itemIdToExpandedRowMap={expandedRowMap}
           isExpandable={true}
           data-test-subj={`alertsDashboardFlyout_table_${trigger_name}`}
         />
@@ -751,11 +815,13 @@ export default class AlertsDashboardFlyoutComponent extends Component {
         displayTableTabs = false;
         break;
     }
+
     const monitorUrl = `#/monitors/${monitor_id}${
       monitorType === MONITOR_TYPE.COMPOSITE_LEVEL ? '?type=workflow' : ''
     }`;
 
     const dataSources = getDataSources(monitor, localClusterName).join('\n');
+
     return (
       <div>
         <EuiFlexGroup>
@@ -773,7 +839,7 @@ export default class AlertsDashboardFlyoutComponent extends Component {
           </EuiFlexItem>
         </EuiFlexGroup>
 
-        <EuiSpacer size={'xxl'} />
+        <EuiSpacer size="xxl" />
 
         <EuiFlexGroup>
           <EuiFlexItem>
@@ -790,7 +856,7 @@ export default class AlertsDashboardFlyoutComponent extends Component {
           </EuiFlexItem>
         </EuiFlexGroup>
 
-        <EuiSpacer size={'xxl'} />
+        <EuiSpacer size="xxl" />
 
         <EuiFlexGroup>
           <EuiFlexItem>
@@ -809,7 +875,7 @@ export default class AlertsDashboardFlyoutComponent extends Component {
           </EuiFlexItem>
         </EuiFlexGroup>
 
-        <EuiHorizontalRule margin={'xxl'} />
+        <EuiHorizontalRule margin="xxl" />
 
         <EuiFlexGroup>
           <EuiFlexItem>
@@ -821,7 +887,7 @@ export default class AlertsDashboardFlyoutComponent extends Component {
             </EuiText>
           </EuiFlexItem>
 
-          {!isV2 && ![MONITOR_TYPE.DOC_LEVEL, MONITOR_TYPE.COMPOSITE_LEVEL].includes(monitorType) && (
+          {![MONITOR_TYPE.DOC_LEVEL, MONITOR_TYPE.COMPOSITE_LEVEL].includes(monitorType) && (
             <EuiFlexItem>
               <EuiText size="s" data-test-subj={`alertsDashboardFlyout_timeRange_${trigger_name}`}>
                 <strong>Time range for the last</strong>
@@ -831,9 +897,9 @@ export default class AlertsDashboardFlyoutComponent extends Component {
           )}
         </EuiFlexGroup>
 
-        {!isV2 && ![MONITOR_TYPE.DOC_LEVEL, MONITOR_TYPE.COMPOSITE_LEVEL].includes(monitorType) && (
+        {![MONITOR_TYPE.DOC_LEVEL, MONITOR_TYPE.COMPOSITE_LEVEL].includes(monitorType) && (
           <div>
-            <EuiSpacer size={'xxl'} />
+            <EuiSpacer size="xxl" />
 
             <EuiFlexGroup>
               <EuiFlexItem>
@@ -858,8 +924,8 @@ export default class AlertsDashboardFlyoutComponent extends Component {
           </div>
         )}
 
-        <EuiSpacer size={'xxl'} />
-        <EuiHorizontalRule margin={'none'} />
+        <EuiSpacer size="xxl" />
+        <EuiHorizontalRule margin="none" />
         <EuiSpacer size={displayTableTabs ? 'l' : 'xxl'} />
 
         {displayTableTabs ? (
@@ -870,7 +936,7 @@ export default class AlertsDashboardFlyoutComponent extends Component {
         ) : (
           this.renderAlertsTable()
         )}
-        <EuiSpacer size={'l'} />
+        <EuiSpacer size="l" />
       </div>
     );
   }
