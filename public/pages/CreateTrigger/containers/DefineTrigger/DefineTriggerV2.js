@@ -471,7 +471,7 @@ class DefineTrigger extends Component {
                     {...field}
                     value={field.value != null ? field.value : ''}
                     fullWidth
-                    placeholder="eg: (eval result = count > 3)"
+                    placeholder="eg: eval result = count > 3"
                     data-test-subj="customConditionInput"
                   />
                 )}
