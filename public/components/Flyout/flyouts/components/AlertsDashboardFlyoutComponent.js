@@ -34,7 +34,7 @@ import {
 import { TRIGGER_TYPE } from '../../../../pages/CreateTrigger/containers/CreateTrigger/utils/constants';
 import { UNITS_OF_TIME } from '../../../../pages/CreateMonitor/components/MonitorExpressions/expressions/utils/constants';
 import { DEFAULT_WHERE_EXPRESSION_TEXT } from '../../../../pages/CreateMonitor/components/MonitorExpressions/expressions/utils/whereHelpers';
-import { acknowledgeAlerts, backendErrorNotification } from '../../../../utils/helpers';
+import { acknowledgeAlerts, backendErrorNotification, getSeverityText } from '../../../../utils/helpers';
 import {
   getQueryObjectFromState,
   getURLQueryParams,
@@ -62,7 +62,6 @@ import {
   getDataSourceId,
   getIsCommentsEnabled,
 } from '../../../../pages/utils/helpers';
-import { getSeverityText } from '../../../../utils/helpers';
 
 export const DEFAULT_NUM_FLYOUT_ROWS = 10;
 
@@ -223,7 +222,7 @@ export default class AlertsDashboardFlyoutComponent extends Component {
     
     if (viewMode === 'new') {
       // For v2/new mode, call the v2 API and filter by trigger_v2_id
-      httpClient.get('/api/alerting/v2/monitors/alerts')?.then((resp) => {
+      httpClient.get('/api/alerting/v2/monitors/alerts', { query: extendedParams })?.then((resp) => {
         if (resp.ok) {
           const payload = resp.resp || resp;
           let allAlerts = [];
