@@ -821,20 +821,17 @@ export default class MonitorService extends MDSEnabledClientService {
       
       // Route to v2 update if payload is v2/PPL
       if (isV2MonitorPayload(req.body)) {
-        // Clean backend-managed fields from PPL monitor payload
         let cleanedBody = req.body;
         if (req.body?.ppl_monitor) {
           const { enabled_time, schema_version, last_update_time, user, ...cleanMonitor } = req.body.ppl_monitor;
-          
-          // Also clean backend-managed fields from triggers
+
           if (Array.isArray(cleanMonitor.triggers)) {
             cleanMonitor.triggers = cleanMonitor.triggers.map(({ id, last_triggered_time, ...trigger }) => trigger);
           }
-          
+
           cleanedBody = { ppl_monitor: cleanMonitor };
         }
-        
-        // Use transport.request for MDS/AOSS compatibility
+
         const ifSeqNo = req.query?.ifSeqNo;
         const ifPrimaryTerm = req.query?.ifPrimaryTerm;
         const qs = new URLSearchParams();

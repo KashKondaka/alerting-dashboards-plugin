@@ -301,27 +301,97 @@ export default class Monitors extends Component {
     this.setState({ page: 0, search: e.target.value });
   }
 
-  updateMonitor(item, update) {
+  async updateMonitor(item, update) {
     const { httpClient, notifications } = this.props;
-    const { id, ifSeqNo, ifPrimaryTerm, monitor } = item;
-    const params = { ifSeqNo, ifPrimaryTerm };
-    const dataSourceId = getDataSourceId();
-    const extendedParams = {
-      ...(dataSourceId !== undefined && { dataSourceId }), // Only include dataSourceId if it exists
-      ...params, // Other parameters
-    };
-    return httpClient
-      .put(`../api/alerting/monitors/${id}`, {
-        query: extendedParams,
-        body: JSON.stringify({ ...monitor, ...update }),
-      })
-      .then((resp) => {
-        if (!resp.ok) {
-          backendErrorNotification(notifications, 'update', 'monitor', resp.resp);
+    const dataSourceQuery = getDataSourceQueryObj();
+
+    try {
+      const detailResp = await httpClient.get(
+        `../api/alerting/monitors/${item.id}`,
+        dataSourceQuery
+      );
+
+      if (!detailResp?.ok) {
+        backendErrorNotification(notifications, 'get', 'monitor', detailResp?.resp);
+        return detailResp;
+      }
+
+      const monitorDetail = detailResp.resp || {};
+      const ifSeqNo = detailResp.ifSeqNo ?? item.ifSeqNo;
+      const ifPrimaryTerm = detailResp.ifPrimaryTerm ?? item.ifPrimaryTerm;
+      const dataSourceId = getDataSourceId();
+
+      const isPplMonitor = Boolean(
+        _.get(monitorDetail, 'monitor_v2.ppl_monitor') ||
+          _.get(monitorDetail, 'monitorV2.ppl_monitor') ||
+          monitorDetail?.ppl_monitor ||
+          monitorDetail?.monitor_mode === 'ppl' ||
+          monitorDetail?.monitorMode === 'ppl' ||
+          (typeof monitorDetail?.query_language === 'string' &&
+            monitorDetail.query_language.toLowerCase() === 'ppl') ||
+          (typeof monitorDetail?.queryLanguage === 'string' &&
+            monitorDetail.queryLanguage.toLowerCase() === 'ppl')
+      );
+
+      const query = {};
+      if (ifSeqNo !== undefined) query.ifSeqNo = ifSeqNo;
+      if (ifPrimaryTerm !== undefined) query.ifPrimaryTerm = ifPrimaryTerm;
+      if (dataSourceId !== undefined) query.dataSourceId = dataSourceId;
+
+      if (isPplMonitor) {
+        const basePplMonitor = _.cloneDeep(
+          _.get(monitorDetail, 'monitor_v2.ppl_monitor') ||
+            _.get(monitorDetail, 'monitorV2.ppl_monitor') ||
+            monitorDetail?.ppl_monitor ||
+            monitorDetail ||
+            {}
+        );
+
+        const cleanedPplMonitor = _.omit(
+          { ...basePplMonitor, ...update },
+          ['id', '_id', 'item_type', 'monitor_type', 'version', '_version', 'ifSeqNo', 'ifPrimaryTerm']
+        );
+
+        if (Array.isArray(cleanedPplMonitor.triggers)) {
+          cleanedPplMonitor.triggers = cleanedPplMonitor.triggers.map((trigger) =>
+            _.omit(trigger, ['id', 'last_triggered_time', 'last_execution_time'])
+          );
         }
-        return resp;
-      })
-      .catch((err) => err);
+
+        return httpClient
+          .put(`../api/alerting/monitors/${item.id}`, {
+            query,
+            body: JSON.stringify({ monitor_mode: 'ppl', ppl_monitor: cleanedPplMonitor }),
+          })
+          .then((resp) => {
+            if (!resp.ok) {
+              backendErrorNotification(notifications, 'update', 'monitor', resp.resp);
+            }
+            return resp;
+          })
+          .catch((err) => err);
+      }
+
+      const legacyPayload = _.omit(
+        { ...monitorDetail, ...update },
+        ['id', '_id', 'item_type', 'currentTime', 'version', '_version', 'ifSeqNo', 'ifPrimaryTerm']
+      );
+
+      return httpClient
+        .put(`../api/alerting/monitors/${item.id}`, {
+          query,
+          body: JSON.stringify(legacyPayload),
+        })
+        .then((resp) => {
+          if (!resp.ok) {
+            backendErrorNotification(notifications, 'update', 'monitor', resp.resp);
+          }
+          return resp;
+        })
+        .catch((err) => err);
+    } catch (err) {
+      return err;
+    }
   }
 
   async updateMonitors(items, update) {
