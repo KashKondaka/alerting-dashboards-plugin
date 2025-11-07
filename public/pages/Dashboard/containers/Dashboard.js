@@ -178,9 +178,7 @@ export default class Dashboard extends Component {
         ? '/api/alerting/alerts'        // v1 API for classic view
         : '/api/alerting/v2/monitors/alerts';  // v2 API for new view
       
-      const apiParams = viewMode === 'classic'
-        ? { query: { ...params } }  // v1 accepts query params
-        : {};  // v2 doesn't accept query params
+      const apiParams = { query: { ...params } };
       
       httpClient.get(apiPath, apiParams).then((resp) => {
         if (resp.ok) {

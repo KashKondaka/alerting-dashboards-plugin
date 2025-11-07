@@ -4,6 +4,7 @@
  */
 
 import _ from 'lodash';
+import querystring from 'querystring';
 
 import { INDEX } from '../../utils/constants';
 import { isIndexNotFoundError } from './utils/helpers';
@@ -24,6 +25,62 @@ const isV2MonitorPayload = (body) =>
   body?.monitor?.query_language === 'ppl';
 
 export default class MonitorService extends MDSEnabledClientService {
+  buildAlertsPath(query = {}, { omitDataSourceId = false } = {}) {
+    const queryCopy = { ...query };
+    if (omitDataSourceId) {
+      delete queryCopy.dataSourceId;
+    }
+    const queryString = querystring.stringify(queryCopy);
+    return `/_plugins/_alerting/v2/monitors/alerts${queryString ? `?${queryString}` : ''}`;
+  }
+
+  normalizeAlertsQuery(query = {}) {
+    const {
+      from,
+      size,
+      sortField,
+      sortDirection,
+      search,
+      severityLevel,
+      monitorIds,
+      monitorId,
+    } = query;
+
+    const normalized = {};
+
+    if (size !== undefined) {
+      const parsedSize = Number(size);
+      if (!Number.isNaN(parsedSize)) normalized.size = parsedSize;
+    }
+
+    if (from !== undefined) {
+      const parsedFrom = Number(from);
+      if (!Number.isNaN(parsedFrom)) normalized.startIndex = parsedFrom;
+    }
+
+    if (sortField) {
+      const sortFieldString = String(sortField);
+      const sortFieldMap = {
+        start_time: 'triggered_time',
+        startTime: 'triggered_time',
+      };
+      normalized.sortString = sortFieldMap[sortFieldString] || sortFieldString;
+    }
+    if (sortDirection) normalized.sortOrder = String(sortDirection).toLowerCase();
+    if (search) normalized.searchString = String(search);
+
+    if (severityLevel && String(severityLevel).toUpperCase() !== 'ALL') {
+      normalized.severityLevel = String(severityLevel);
+    }
+
+    const monitorIdValue = Array.isArray(monitorIds)
+      ? monitorIds[0]
+      : monitorIds ?? monitorId;
+    if (monitorIdValue) normalized.monitorId = String(monitorIdValue);
+
+    return normalized;
+  }
+
   /** ---------- NEW: generic PPL query passthrough (/_plugins/_ppl) ---------- */
   pplQuery = async (context, req, res) => {
     try {
@@ -92,7 +149,8 @@ export default class MonitorService extends MDSEnabledClientService {
   alertsForMonitorsV2 = async (context, req, res) => {
     try {
       const client = this.getClientBasedOnDataSource(context, req);
-      const path = `/_plugins/_alerting/v2/monitors/alerts`;
+      const backendQuery = this.normalizeAlertsQuery(req.query);
+      const path = this.buildAlertsPath(backendQuery, { omitDataSourceId: true });
       
       const resp = await client('transport.request', {
         method: 'GET',
@@ -109,11 +167,12 @@ export default class MonitorService extends MDSEnabledClientService {
           
           // Get client without data source routing (use default cluster)
           const defaultClient = this.osDriver.asScoped(req).callAsCurrentUser;
-          const path = `/_plugins/_alerting/v2/monitors/alerts`;
+          const backendQuery = this.normalizeAlertsQuery(req.query);
+          const fallbackPath = this.buildAlertsPath(backendQuery);
           
           const resp = await defaultClient('transport.request', {
             method: 'GET',
-            path,
+            path: fallbackPath,
             headers: DEFAULT_HEADERS,
           });
           
