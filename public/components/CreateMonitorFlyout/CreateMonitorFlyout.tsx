@@ -797,28 +797,34 @@ export class CreateMonitorFlyout extends Component<FlyoutComponentProps, CreateM
     const LookBackControls = (
       <>
         <EuiFormRow>
-          <EuiCheckbox
-            id="useLookBackWindow"
-            label={
-              <span>
-                Add look back window{' '}
+          <EuiFlexGroup gutterSize="s" alignItems="center" responsive={false} style={{ marginLeft: '-4px' }}>
+            <EuiFlexItem grow={false}>
+              <EuiCheckbox
+                id="useLookBackWindow"
+                label={null}
+                aria-label="Add look back window"
+                checked={useLB && !(dateFieldsError && availableDateFields.length === 0)}
+                onChange={(e) => {
+                  if (dateFieldsError && availableDateFields.length === 0) {
+                    setFieldValue('useLookBackWindow', false);
+                  } else {
+                    setFieldValue('useLookBackWindow', e.target.checked);
+                  }
+                }}
+                data-test-subj="pplUseLookBack"
+                disabled={dateFieldsError !== null && availableDateFields.length === 0}
+              />
+            </EuiFlexItem>
+            <EuiFlexItem grow={false}>
+              <EuiText size="s" style={{ display: 'inline-flex', alignItems: 'center' }}>
+                Add look back window&nbsp;
                 <EuiIconTip
                   type="iInCircle"
                   content="Look back window specifies how far back in time the monitor should query data during each execution."
                 />
-              </span>
-            }
-            checked={useLB && !(dateFieldsError && availableDateFields.length === 0)}
-            onChange={(e) => {
-              if (dateFieldsError && availableDateFields.length === 0) {
-                setFieldValue('useLookBackWindow', false);
-              } else {
-                setFieldValue('useLookBackWindow', e.target.checked);
-              }
-            }}
-            data-test-subj="pplUseLookBack"
-            disabled={dateFieldsError !== null && availableDateFields.length === 0}
-          />
+              </EuiText>
+            </EuiFlexItem>
+          </EuiFlexGroup>
         </EuiFormRow>
 
         {dateFieldsError && availableDateFields.length === 0 && (
