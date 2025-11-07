@@ -6,16 +6,18 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import PropTypes from 'prop-types';
 import {
+  EuiAccordion,
   EuiFlexGroup,
   EuiHorizontalRule,
   EuiInMemoryTable,
   EuiPagination,
   EuiPanel,
   EuiSpacer,
+  EuiTabbedContent,
   EuiText,
+  EuiCodeBlock,
+  EuiFlexItem,
 } from '@elastic/eui';
-
-/** ------------------ helpers: flatten & mapping ------------------ */
 
 const isPlainObject = (v) => Object.prototype.toString.call(v) === '[object Object]';
 
@@ -27,7 +29,6 @@ const flattenObject = (obj, prefix = '', out = {}) => {
     if (isPlainObject(val)) {
       flattenObject(val, key, out);
     } else if (Array.isArray(val)) {
-      // keep arrays readable; Discover shows them stringified in chips
       out[key] = JSON.stringify(val);
     } else {
       out[key] = val;
@@ -44,17 +45,11 @@ const rowFromSchema = (schema, arrayRow) => {
   return obj;
 };
 
-/**
- * Convert PPL preview response into an array of "documents"
- * that look like Discover’s _source chips (flat key/value map).
- */
 export const pplRespToDocs = (resp) => {
-  // PPL shape: { schema: [{name, type}...], datarows: [ [...], ...] }
   if (resp && Array.isArray(resp.schema) && Array.isArray(resp.datarows)) {
     return resp.datarows.map((row) => flattenObject(rowFromSchema(resp.schema, row)));
   }
 
-  // ES hits fallback: { hits: { hits: [ {_source, _id, ...}, ... ] } }
   const hits = resp && resp.hits && resp.hits.hits;
   if (Array.isArray(hits)) {
     return hits.map((h) => {
@@ -72,17 +67,120 @@ export const pplRespToDocs = (resp) => {
   return [];
 };
 
-/** ------------------ shared styles ------------------ */
+const TokenStream = ({ doc }) => {
+  const entries = useMemo(() => Object.entries(doc || {}), [doc]);
+  const CHIP_LINE_HEIGHT = 20;
+  const CHIP_PAD_Y = 2;
 
-const chipStyle = {
-  backgroundColor: 'rgba(8, 108, 106, .1)',
-  border: '1px solid rgba(8, 108, 106, .25)',
-  borderRadius: 6,
-  padding: '2px 8px',
-  fontWeight: 400, // no bold
+  return (
+    <EuiText
+      size="s"
+      style={{
+        whiteSpace: 'normal',
+        wordBreak: 'break-word',
+        overflowWrap: 'anywhere',
+        lineHeight: `${(CHIP_LINE_HEIGHT + CHIP_PAD_Y * 2) / 14}`,
+      }}
+    >
+      {entries.map(([k, v]) => {
+        const value = typeof v === 'number' ? v.toLocaleString() : String(v ?? '-');
+        return (
+          <span key={k} style={{ display: 'inline' }}>
+            <span
+              style={{
+                display: 'inline-block',
+                background: 'rgba(8, 108, 106, .1)',
+                border: '1px solid rgba(8, 108, 106, .15)',
+                color: 'inherit',
+                borderRadius: 8,
+                padding: `${CHIP_PAD_Y}px 8px`,
+                marginRight: 6,
+                marginBottom: 6,
+                fontWeight: 400,
+                lineHeight: `${CHIP_LINE_HEIGHT}px`,
+              }}
+            >
+              {k}:
+            </span>
+            <span
+              style={{
+                display: 'inline-block',
+                marginRight: 12,
+                marginBottom: 6,
+                lineHeight: `${CHIP_LINE_HEIGHT}px`,
+              }}
+            >
+              {value}
+            </span>
+          </span>
+        );
+      })}
+    </EuiText>
+  );
 };
 
-/** ------------------ collapsed token stream (Discover-like) ------------------ */
+TokenStream.propTypes = {
+  doc: PropTypes.object,
+};
+
+const ExpandedDoc = ({ doc }) => {
+  const rows = useMemo(
+    () =>
+      Object.entries(doc || {}).map(([k, v]) => ({
+        key: k,
+        value: typeof v === 'number' ? v.toLocaleString() : String(v ?? '-'),
+      })),
+    [doc]
+  );
+
+  const table = (
+    <EuiInMemoryTable
+      items={rows}
+      columns={[
+        {
+          field: 'key',
+          name: 'Field',
+          sortable: true,
+          render: (k) => (
+            <EuiText size="s" style={{ fontFamily: 'monospace' }}>
+              {k}
+            </EuiText>
+          ),
+          width: '40%',
+        },
+        {
+          field: 'value',
+          name: 'Value',
+          render: (v) => <EuiText size="s">{v}</EuiText>,
+        },
+      ]}
+      sorting
+      pagination={{ pageSizeOptions: [50, 100, 200], initialPageSize: 50 }}
+      data-test-subj="ppl-preview-kv-table"
+    />
+  );
+
+  const json = (
+    <EuiCodeBlock language="json" isCopyable paddingSize="m" fontSize="s" overflowHeight={360}>
+      {JSON.stringify(doc, null, 2)}
+    </EuiCodeBlock>
+  );
+
+  return (
+    <EuiTabbedContent
+      tabs={[
+        { id: 'tab-table', name: 'Table', content: <div style={{ padding: 12 }}>{table}</div> },
+        { id: 'tab-json', name: 'JSON', content: <div style={{ padding: 12 }}>{json}</div> },
+      ]}
+      initialSelectedTab={{ id: 'tab-table', name: 'Table' }}
+      autoFocus="selected"
+    />
+  );
+};
+
+ExpandedDoc.propTypes = {
+  doc: PropTypes.object,
+};
 
 export const PplPreviewTable = ({ docs, isLoading = false }) => {
   const list = Array.isArray(docs) ? docs : [];
@@ -117,45 +215,36 @@ export const PplPreviewTable = ({ docs, isLoading = false }) => {
     return <EuiText size="s" color="subdued">No preview rows.</EuiText>;
   }
 
-  const columns = Object.keys(currentDocs[0]?.values || {}).map((key) => ({
-    field: key,
-    name: key,
-    render: (_value, item) => {
-      const val = item.values[key];
-      if (typeof val === 'number') return val.toLocaleString();
-      if (val == null) return '-';
-      return String(val);
-    },
-  }));
-
-  const tableItems = currentDocs.map((item) => ({ id: item.id, ...item.values }));
-
   return (
     <div data-test-subj="ppl-preview-container">
-      <EuiPanel hasBorder paddingSize="m" style={{ marginBottom: 12 }}>
-        <EuiInMemoryTable
-          items={tableItems}
-          columns={columns}
-          pagination={{ pageSizeOptions: [PAGE_SIZE], initialPageSize: PAGE_SIZE }}
-          sorting={false}
-          data-test-subj="ppl-preview-table"
-        />
-      </EuiPanel>
+      {currentDocs.map((doc) => (
+        <EuiPanel hasBorder paddingSize="m" key={doc.id} style={{ marginBottom: 12 }}>
+          <TokenStream doc={doc.values} />
+          <EuiHorizontalRule margin="s" />
+          <EuiAccordion
+            id={`doc-${doc.id}`}
+            buttonContent={<EuiText size="s"><strong>Expanded document</strong></EuiText>}
+            paddingSize="m"
+          >
+            <ExpandedDoc doc={doc.values} />
+          </EuiAccordion>
+        </EuiPanel>
+      ))}
       <EuiSpacer size="m" />
-      {list.length > PAGE_SIZE && (
-        <EuiFlexGroup justifyContent="spaceBetween" alignItems="center" gutterSize="s">
-          <EuiFlexGroup alignItems="center" gutterSize="s">
-            <EuiText size="xs" color="subdued">
-              {`Showing ${start + 1}-${end} of ${list.length}`}
-            </EuiText>
-          </EuiFlexGroup>
+      <EuiFlexGroup justifyContent="spaceBetween" alignItems="center" gutterSize="s">
+        <EuiFlexItem grow={false}>
+          <EuiText size="xs" color="subdued">
+            {`Showing ${start + 1}-${end} of ${list.length}`}
+          </EuiText>
+        </EuiFlexItem>
+        <EuiFlexItem grow={false}>
           <EuiPagination
-            pageCount={pageCount}
+            pageCount={pageCount || 1}
             activePage={safePageIndex}
             onPageClick={setPageIndex}
           />
-        </EuiFlexGroup>
-      )}
+        </EuiFlexItem>
+      </EuiFlexGroup>
     </div>
   );
 };

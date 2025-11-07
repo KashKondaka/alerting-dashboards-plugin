@@ -20,7 +20,6 @@ import {
   EuiText,
   EuiToolTip,
   EuiSmallButtonIcon,
-  EuiInMemoryTable,
 } from '@elastic/eui';
 import { getTime } from '../../../../pages/MonitorDetails/components/MonitorOverview/utils/getOverviewStats';
 import {
@@ -62,6 +61,7 @@ import {
   getDataSourceId,
   getIsCommentsEnabled,
 } from '../../../../pages/utils/helpers';
+import { PplPreviewTable, pplRespToDocs } from '../../../../pages/CreateMonitor/components/PplPreviewTable/PplPreviewTable';
 
 export const DEFAULT_NUM_FLYOUT_ROWS = 5;
 
@@ -394,51 +394,11 @@ export default class AlertsDashboardFlyoutComponent extends Component {
       );
     }
 
-    const columns = schema.map((col, index) => {
-      const fieldName = col?.name || `field_${index}`;
-      return {
-        field: fieldName,
-        name: fieldName,
-        render: (value) => {
-          if (value == null) return '-';
-          if (typeof value === 'number') return value.toLocaleString();
-          if (typeof value === 'object') {
-            try {
-              return JSON.stringify(value);
-            } catch (e) {
-              return String(value);
-            }
-          }
-          return String(value);
-        },
-      };
-    });
-
-    const items = dataRows.map((row, rowIdx) => {
-      const item = { id: rowIdx };
-      schema.forEach((col, colIdx) => {
-        const fieldName = col?.name || `field_${colIdx}`;
-        if (Array.isArray(row)) {
-          item[fieldName] = row[colIdx];
-        } else if (row && typeof row === 'object') {
-          item[fieldName] = row[fieldName];
-        } else {
-          item[fieldName] = row;
-        }
-      });
-      return item;
-    });
+    const docs = pplRespToDocs(results);
 
     return (
-      <div style={{ maxWidth: '100%' }} data-test-subj={`alert-query-results-${alert?.id}`}>
-        <EuiInMemoryTable
-          items={items}
-          columns={columns}
-          itemId="id"
-          pagination={{ pageSizeOptions: [5], initialPageSize: 5 }}
-          sorting={false}
-          isSelectable={false}
-        />
+      <div data-test-subj={`alert-query-results-${alert?.id}`}>
+        <PplPreviewTable docs={docs} />
       </div>
     );
   };
