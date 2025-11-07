@@ -283,6 +283,7 @@ const propTypes = {
   notificationService: PropTypes.object,
   plugins: PropTypes.arrayOf(PropTypes.string),
   errors: PropTypes.object,
+  thresholdValueValidator: PropTypes.func,
 };
 
 const defaultProps = { flyoutMode: null };
@@ -512,6 +513,7 @@ class DefineTrigger extends Component {
       flyoutMode,
       submitCount,
       errors,
+      thresholdValueValidator,
     } = this.props;
 
     const { pluginsLoading } = this.props;
@@ -587,7 +589,7 @@ class DefineTrigger extends Component {
 
     const numberOfResultsHeader = isNumberOfResults ? (
       <>
-        <EuiFlexGroup gutterSize="s" responsive={false} alignItems="flexEnd" style={{ paddingLeft: GRID_PAD, maxWidth: GRID_MAX }}>
+        <EuiFlexGroup gutterSize="s" responsive={false} alignItems="flexStart" style={{ paddingLeft: GRID_PAD, maxWidth: GRID_MAX }}>
           <EuiFlexItem>
             <FormikSelect
               name={`${fieldPath}thresholdEnum`}
@@ -600,13 +602,37 @@ class DefineTrigger extends Component {
             <FormikFieldText
               name={`${fieldPath}thresholdValue`}
               formRow
-              rowProps={{ hasEmptyLabelSpace: true, fullWidth: true, style: { paddingLeft: 0 } }}
-              inputProps={{ type: 'number', fullWidth: true }}
+              fieldProps={{
+                validate: thresholdValueValidator
+                  ? thresholdValueValidator
+                  : (value) => {
+                      if (value == null || value === '') {
+                        return undefined;
+                      }
+                      const numeric = Number(value);
+                      if (!Number.isNaN(numeric) && numeric > 10000) {
+                        return 'Value cannot be greater than 10,000.';
+                      }
+                      return undefined;
+                    },
+              }}
+              rowProps={{
+                hasEmptyLabelSpace: true,
+                fullWidth: true,
+                style: { paddingLeft: 0 },
+                isInvalid: (fieldName, form) => {
+                  const error = _.get(form.errors, fieldName);
+                  const touched = _.get(form.touched, fieldName);
+                  return touched && !!error;
+                },
+                error: (fieldName, form) => _.get(form.errors, fieldName),
+              }}
+              inputProps={{ type: 'number', fullWidth: true, min: 0 }}
             />
           </EuiFlexItem>
         </EuiFlexGroup>
 
-        <EuiFlexGroup {...twoColRowProps}>
+        <EuiFlexGroup {...twoColRowProps} alignItems="flexStart">
           <EuiFlexItem grow>{/* radio group lives here if needed */}</EuiFlexItem>
           <EuiFlexItem grow />
         </EuiFlexGroup>

@@ -60,23 +60,22 @@ const TriggerGraphV2 = ({
 
   const total =
     _.get(response, 'hits.total.value') ??
-    _.get(response, 'total') ??
-    0;
+    (_.get(response, 'total') !== undefined ? _.get(response, 'total') : undefined);
 
   console.log('[TriggerGraphV2] Extracted buckets:', buckets);
   console.log('[TriggerGraphV2] Extracted total:', total);
 
-  // If no buckets, synthesize a 24-bar flat series so VisualGraph never shows empty-state.
-  if (!buckets || buckets.length === 0) {
+  // Only synthesize a placeholder when the response truly has no agg data.
+  const shouldSynthesizeBuckets = !response || !response.aggregations;
+  if ((!buckets || buckets.length === 0) && shouldSynthesizeBuckets) {
     const now = Date.now();
-    const hourMs = 60 * 60 * 1000; // 1h
-    buckets = [{ key: now - hourMs, doc_count: 0 }];
-    console.log('[TriggerGraphV2] No buckets found, synthesized:', buckets);
+    buckets = [{ key: now, doc_count: 0 }];
+    console.log('[TriggerGraphV2] No buckets found, synthesized placeholder bucket');
   }
-
+  
   // Normalize into a VisualGraph-friendly shape:
   const graphResponse = {
-    hits: { total: { value: Number(total) || 0, relation: 'eq' } },  // Removed Math.max(1, ...) to show accurate counts
+    hits: total != null ? { total: { value: Number(total) || 0, relation: 'eq' } } : undefined,
     aggregations: {
       count_over_time: { buckets },
       combined_value: { buckets },

@@ -249,7 +249,8 @@ export const AlertingVisualGraph: React.FC<AlertingVisualGraphProps> = ({
   };
 
   const formatYValue = (value: number) => {
-    if (typeof value !== 'number' || isNaN(value)) return '0';
+    if (typeof value !== 'number' || isNaN(value)) return '';
+    if (value <= 0) return '';
     return value.toLocaleString();
   };
 

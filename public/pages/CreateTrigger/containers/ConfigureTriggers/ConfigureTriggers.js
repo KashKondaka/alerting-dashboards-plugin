@@ -75,6 +75,17 @@ class ConfigureTriggers extends React.Component {
     this.prepareTriggerEmptyPrompt = this.prepareTriggerEmptyPrompt.bind(this);
   }
 
+  validateThresholdValue = (value) => {
+    if (value == null || value === '') {
+      return undefined;
+    }
+    const numeric = Number(value);
+    if (!Number.isNaN(numeric) && numeric > 10000) {
+      return 'Value cannot be greater than 10,000.';
+    }
+    return undefined;
+  };
+
   componentDidMount() {
     this.monitorSetupByType();
   }
@@ -431,7 +442,7 @@ class ConfigureTriggers extends React.Component {
     );
   };
 
-  renderTriggers = (triggerArrayHelpers) => {
+  renderTriggers = (triggerArrayHelpers, valueValidator) => {
     const { monitorValues, triggerValues, flyoutMode, errors, submitCount } = this.props;
     const { triggerEmptyPrompt, TriggerContainer, accordionsOpen, currentSubmitCount } = this.state;
     const hasTriggers = !_.isEmpty(_.get(triggerValues, 'triggerDefinitions'));
@@ -525,7 +536,7 @@ class ConfigureTriggers extends React.Component {
         bodyStyles={{ paddingLeft: '0px', padding: '10px' }}
         horizontalRuleClassName={'accordion-horizontal-rule'}
       >
-        {this.renderTriggers(triggerArrayHelpers)}
+        {this.renderTriggers(triggerArrayHelpers, flyoutMode ? this.validateThresholdValue : undefined)}
         {flyoutMode && !disableAddTriggerButton && (
           <AddTriggerButton
             arrayHelpers={triggerArrayHelpers}
