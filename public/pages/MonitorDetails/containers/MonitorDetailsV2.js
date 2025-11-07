@@ -593,6 +593,7 @@ export default class MonitorDetails extends Component {
           httpClient={httpClient}
           delegateMonitors={delegateMonitors}
           updateMonitor={this.updateMonitor}
+          showPplColumns={true}
         />
         {/* TODO: History section commented out - may need to re-add later
         <div className="eui-hideFor--xs eui-hideFor--s eui-hideFor--m">
