@@ -23,6 +23,7 @@ import {
   EuiCheckbox,
   EuiToolTip,
   EuiIconTip,
+  EuiIcon,
   EuiTextColor,
   EuiSelect,
   EuiFieldNumber,
@@ -971,9 +972,22 @@ export class CreateMonitorFlyout extends Component<FlyoutComponentProps, CreateM
               />
             </EuiFormRow>
             <EuiText size="xs" color="subdued">
-              <EuiLink href="https://docs.opensearch.org/latest/observing-your-data/alerting/cron/" external>
+              <a
+                href="https://docs.opensearch.org/latest/observing-your-data/alerting/cron/"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="euiLink"
+                style={{ display: 'inline-flex', alignItems: 'center' }}
+              >
                 Use cron expressions for complex schedules
-              </EuiLink>
+                <EuiIcon
+                  type="popout"
+                  size="s"
+                  color="primary"
+                  style={{ marginLeft: 4 }}
+                  aria-hidden="true"
+                />
+              </a>
             </EuiText>
             <EuiSpacer size="m" />
           </>
