@@ -367,6 +367,7 @@ export default class MonitorDetails extends Component {
         notifications={notifications}
         monitorType={monitor.monitor_type}
         perAlertView={true}
+        initialViewMode="classic"
         groupBy={groupBy}
         setFlyout={setFlyout}
       />

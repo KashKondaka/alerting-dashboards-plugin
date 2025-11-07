@@ -606,6 +606,7 @@ export default class MonitorDetails extends Component {
             isDarkMode={isDarkMode}
             notifications={notifications}
             monitorType={displayMonitor.monitor_type}
+          useV2AlertsApi={true}
           />
         </div>
         */}

@@ -56,7 +56,7 @@ export default class Dashboard extends Component {
   constructor(props) {
     super(props);
 
-    const { location, perAlertView } = props;
+    const { location, perAlertView, initialViewMode } = props;
 
     const { alertState, from, search, severityLevel, size, sortDirection, sortField } =
       getURLQueryParams(location);
@@ -84,13 +84,14 @@ export default class Dashboard extends Component {
       //chainedAlert: undefined,
       commentsEnabled: false,
       isAgentConfigured: false,
-      viewMode: 'new', // 'new' or 'classic'
+      viewMode: initialViewMode || 'new', // 'new' or 'classic'
     };
   }
 
   static defaultProps = {
     monitorIds: [],
     detectorIds: [],
+    initialViewMode: 'new',
   };
 
   componentDidMount() {
