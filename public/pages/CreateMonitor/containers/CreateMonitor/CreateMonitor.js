@@ -126,6 +126,25 @@ class CreateMonitor extends Component {
       // noop — safe fallback if URL parsing fails
     }
 
+    // Adjust default flow based on viewMode selection from monitors page
+    if (!edit) {
+      let storedViewMode = 'new';
+      try {
+        const stored = localStorage.getItem('alerting_monitors_view_mode');
+        if (stored === 'classic' || stored === 'new') {
+          storedViewMode = stored;
+        }
+      } catch (e) {
+        // ignore localStorage access errors
+      }
+
+      if (storedViewMode === 'classic') {
+        initialValues.monitor_mode = 'legacy';
+      } else {
+        initialValues.monitor_mode = 'ppl';
+      }
+    }
+
     // Helpers to map v2 trigger fields -> Formik fields used by DefineTrigger
     const parseDuration = (val) => {
       // Handle integer minutes from backend
