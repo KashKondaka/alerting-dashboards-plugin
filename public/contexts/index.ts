@@ -3,5 +3,5 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-export { AlertingDataTable } from './AlertingDataTable';
+export { DatasetProvider, useDatasetContext } from './DatasetContext';
 
