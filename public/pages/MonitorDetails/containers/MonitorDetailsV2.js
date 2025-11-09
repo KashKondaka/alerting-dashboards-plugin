@@ -30,14 +30,16 @@ import {
   EuiIcon,
 } from '@elastic/eui';
 import CreateMonitor from '../../CreateMonitor';
-import MonitorOverviewV2 from '../components/MonitorOverview/MonitorOverviewV2';
+import { MonitorOverviewV2 } from '../components/MonitorOverview';
+import MonitorHistory from './MonitorHistory';
 import Dashboard from '../../Dashboard/containers/Dashboard';
-import TriggersPpl from './Triggers/TriggersPpl';
+import Triggers from './Triggers';
 import {
   MONITOR_ACTIONS,
   MONITOR_GROUP_BY,
   MONITOR_INPUT_DETECTOR_ID,
   MONITOR_TYPE,
+  TRIGGER_ACTIONS,
 } from '../../../utils/constants';
 import { migrateTriggerMetadata } from './utils/helpers';
 import { backendErrorNotification, deleteMonitor } from '../../../utils/helpers';
@@ -53,7 +55,15 @@ import { MultiDataSourceContext } from '../../../../public/utils/MultiDataSource
 import { getUseUpdatedUx, setDataSource } from '../../../services';
 import { PageHeader } from '../../../components/PageHeader/PageHeader';
 
-export default class MonitorDetailsV2 extends Component {
+const safeGetDataSourceQuery = () => {
+  try {
+    return getDataSourceQueryObj();
+  } catch (err) {
+    return undefined;
+  }
+};
+
+export default class MonitorDetails extends Component {
   static contextType = MultiDataSourceContext;
   constructor(props) {
     super(props);
@@ -86,7 +96,7 @@ export default class MonitorDetailsV2 extends Component {
     };
   }
 
-  /** Retrieve ppl_monitor from V2 payloads when present */
+  /** Return ppl_monitor from V2 if present, otherwise null */
   getV2Ppl = (mon) => {
     if (!mon) return null;
     return mon?.monitor_v2?.ppl_monitor ?? mon?.monitorV2?.ppl_monitor ?? mon?.ppl_monitor ?? null;
@@ -129,12 +139,15 @@ export default class MonitorDetailsV2 extends Component {
       setDataSource({ dataSourceId: this.context.dataSourceId });
     }
     this.getMonitor(this.props.match.params.monitorId);
-    const dataSourceQuery = getDataSourceQueryObj();
+    const dataSourceQuery = safeGetDataSourceQuery();
     this.getLocalClusterName(dataSourceQuery);
   }
 
   componentDidUpdate(prevProps, prevState) {
     if (this.state.monitorVersion !== prevState.monitorVersion && !prevState.loading) {
+      // this can happen on initial load when going from 0 -> currentVersion
+      // so if we haven't also gone from loading: true -> loading: false we're fine
+      // ie if prev loading state was false we're fine
       this.getMonitor(this.props.match.params.monitorId);
     }
   }
@@ -150,12 +163,12 @@ export default class MonitorDetailsV2 extends Component {
   };
 
   getDetector = (id) => {
-    const { httpClient } = this.props;
-    const dataSourceQuery = getDataSourceQueryObj();
+    const { httpClient, notifications } = this.props;
+    const dataSourceQuery = safeGetDataSourceQuery();
     httpClient
       .get(`../api/alerting/detectors/${id}`, dataSourceQuery)
       .then((resp) => {
-        const { ok, detector, version: detectorVersion } = resp;
+        const { ok, detector, version: detectorVersion, seqNo, primaryTerm } = resp;
         if (ok) {
           this.setState({
             detector: detector,
@@ -171,25 +184,31 @@ export default class MonitorDetailsV2 extends Component {
   };
 
   updateDelegateMonitors = async (monitor) => {
-    const dataSourceQuery = getDataSourceQueryObj();
+    const dataSourceQuery = safeGetDataSourceQuery();
     const getMonitor = async (id) => {
-      const url = `../api/alerting/monitors/${id}`;
-      return this.props.httpClient
-        .get(url, dataSourceQuery)
-        .then((res) => res.resp)
-        .catch((err) => {
+      const tryGet = async (path) => {
+        try {
+          return await this.props.httpClient.get(path, dataSourceQuery);
+        } catch (err) {
           console.error('err', err);
-          return undefined;
-        });
+          return { ok: false };
+        }
+      };
+
+      let res = await tryGet(`../api/alerting/v2/monitors/${id}`);
+      if (!res?.ok) {
+        res = await tryGet(`../api/alerting/monitors/${id}`);
+      }
+      return res?.resp;
     };
 
     const delegateMonitors = [];
 
     for (const { monitor_id } of monitor.inputs[0].composite_input.sequence.delegates) {
-      const delegateMonitor = await getMonitor(monitor_id);
-      if (!delegateMonitor) return;
+      const monitor = await getMonitor(monitor_id);
+      if (!monitor) return;
 
-      delegateMonitors.push(delegateMonitor);
+      delegateMonitors.push(monitor);
     }
 
     this.setState({
@@ -201,49 +220,63 @@ export default class MonitorDetailsV2 extends Component {
     });
   };
 
-  getMonitor = (id) => {
+  getMonitor = async (id) => {
     const { httpClient } = this.props;
     const isWorkflow = this.isWorkflow();
-    const url = `../api/alerting/${isWorkflow ? 'workflows' : 'monitors'}/${id}`;
-    const dataSourceQuery = getDataSourceQueryObj();
-    const response = httpClient.get(url, dataSourceQuery);
-    response
-      .then((resp) => {
-        const {
-          ok,
-          resp: monitor,
-          version: monitorVersion,
-          dayCount,
-          activeCount,
-          ifSeqNo,
-          ifPrimaryTerm,
-        } = resp;
-        if (ok) {
-          if (isWorkflow) {
-            this.updateDelegateMonitors(monitor);
-          }
-          this.setState({
-            ifSeqNo,
-            ifPrimaryTerm,
-            monitor: migrateTriggerMetadata(monitor),
-            monitorVersion,
-            dayCount,
-            activeCount,
-            loading: false,
-            error: null,
-          });
-          const adId = _.get(monitor, MONITOR_INPUT_DETECTOR_ID, undefined);
-          if (adId) {
-            this.getDetector(adId);
-          }
-          this.setState({ tabContent: this.renderAlertsTable() });
-        } else {
-          this.props.history.push('/monitors');
-        }
-      })
-      .catch((err) => {
+    const dataSourceQuery = safeGetDataSourceQuery();
+
+    const tryGet = async (path) => {
+      try {
+        const result = await httpClient.get(path, dataSourceQuery);
+        return result?.ok ? result : null;
+      } catch (err) {
         console.log('err', err);
-      });
+        return null;
+      }
+    };
+
+    let resp = null;
+    if (!isWorkflow) {
+      resp = await tryGet(`../api/alerting/v2/monitors/${id}`);
+    }
+
+    if (!resp) {
+      const fallbackPath = `../api/alerting/${isWorkflow ? 'workflows' : 'monitors'}/${id}`;
+      resp = await tryGet(fallbackPath);
+    }
+
+    if (!resp) {
+      this.props.history.push('/monitors');
+      return;
+    }
+
+    const {
+      resp: monitor,
+      version: monitorVersion,
+      dayCount = 0,
+      activeCount = 0,
+      ifSeqNo,
+      ifPrimaryTerm,
+    } = resp;
+
+    if (isWorkflow) {
+      this.updateDelegateMonitors(monitor);
+    }
+    this.setState({
+      ifSeqNo,
+      ifPrimaryTerm,
+      monitor: migrateTriggerMetadata(monitor),
+      monitorVersion,
+      dayCount,
+      activeCount,
+      loading: false,
+      error: null,
+    });
+    const adId = _.get(monitor, MONITOR_INPUT_DETECTOR_ID, undefined);
+    if (adId) {
+      this.getDetector(adId);
+    }
+    this.setState({ tabContent: this.renderAlertsTable() });
   };
 
   updateMonitor = async (update, actionKeywords = ['update', 'monitor']) => {
@@ -262,7 +295,7 @@ export default class MonitorDetailsV2 extends Component {
 
     this.setState({ updating: true });
 
-    const dataSourceQuery = getDataSourceQueryObj();
+    const dataSourceQuery = safeGetDataSourceQuery();
     const queryParams = {
       ...(dataSourceQuery?.query || {}),
     };
@@ -308,9 +341,17 @@ export default class MonitorDetailsV2 extends Component {
           );
         }
 
-        resp = await httpClient.put(`../api/alerting/monitors/${monitorId}`, {
-          query: queryParams,
-          body: JSON.stringify({ monitor_mode: 'ppl', ppl_monitor: cleanedPplMonitor }),
+        const pplQuery = {
+          ...(_.omit(queryParams, ['ifSeqNo', 'ifPrimaryTerm']) || {}),
+          ...(queryParams.ifSeqNo !== undefined ? { if_seq_no: queryParams.ifSeqNo } : {}),
+          ...(queryParams.ifPrimaryTerm !== undefined
+            ? { if_primary_term: queryParams.ifPrimaryTerm }
+            : {}),
+        };
+
+        resp = await httpClient.put(`../api/alerting/v2/monitors/${monitorId}`, {
+          query: pplQuery,
+          body: JSON.stringify({ ppl_monitor: cleanedPplMonitor }),
         });
       } else {
         const legacyPayload = _.omit({ ...monitor, ...update }, [
@@ -341,7 +382,9 @@ export default class MonitorDetailsV2 extends Component {
         return resp;
       }
 
-      const nextState = { updating: false };
+      const nextState = {
+        updating: false,
+      };
       if (resp.version !== undefined) {
         nextState.monitorVersion = resp.version;
       }
@@ -423,9 +466,9 @@ export default class MonitorDetailsV2 extends Component {
   };
 
   deleteMonitor = async () => {
-    const dataSourceQuery = getDataSourceQueryObj();
+    const dataSourceQuery = safeGetDataSourceQuery();
     await deleteMonitor(
-      this.state.monitor,
+      { ...this.state.monitor, viewMode: 'new' },
       this.props.httpClient,
       this.props.notifications,
       dataSourceQuery
@@ -531,12 +574,15 @@ export default class MonitorDetailsV2 extends Component {
       },
       httpClient,
       notifications,
+      isDarkMode,
       setFlyout,
     } = this.props;
     const { action } = queryString.parse(location.search);
     const displayMonitor = this.getDisplayMonitor();
     const updatingMonitor = action === MONITOR_ACTIONS.EDIT_MONITOR;
     const detectorId = _.get(displayMonitor, MONITOR_INPUT_DETECTOR_ID, undefined);
+    const monitorName =
+      displayMonitor?.name || monitor?.name || monitor?.monitor?.name || monitorId;
 
     if (loading) {
       return (
@@ -619,7 +665,7 @@ export default class MonitorDetailsV2 extends Component {
           <EuiFlexGroup alignItems="flexEnd">
             <EuiFlexItem grow={false}>
               <EuiText size="s" style={{ whiteSpace: 'nowrap', overflow: 'hidden' }}>
-                <h1>{displayMonitor.name}</h1>
+                <h1>{monitorName}</h1>
               </EuiText>
             </EuiFlexItem>
             <EuiFlexItem style={{ paddingBottom: '5px', marginLeft: '0px' }}>
@@ -646,12 +692,28 @@ export default class MonitorDetailsV2 extends Component {
           landingDataSourceId={this.context?.dataSourceId}
         />
         <EuiSpacer />
-        <TriggersPpl
+        <Triggers
           monitor={displayMonitor}
           httpClient={httpClient}
           delegateMonitors={delegateMonitors}
           updateMonitor={this.updateMonitor}
+          showPplColumns={true}
         />
+        {/* TODO: History section commented out - may need to re-add later
+        <div className="eui-hideFor--xs eui-hideFor--s eui-hideFor--m">
+          <EuiSpacer />
+          <MonitorHistory
+            httpClient={httpClient}
+            monitorId={monitorId}
+            onShowTrigger={editMonitor}
+            triggers={getUnwrappedTriggers(displayMonitor)}
+            isDarkMode={isDarkMode}
+            notifications={notifications}
+            monitorType={displayMonitor.monitor_type}
+          useV2AlertsApi={true}
+          />
+        </div>
+        */}
         <EuiSpacer />
 
         {displayTableTabs ? (
@@ -670,7 +732,7 @@ export default class MonitorDetailsV2 extends Component {
             <EuiModal onClose={this.closeJsonModal} style={{ padding: '5px 30px' }}>
               <EuiModalHeader>
                 <EuiModalHeaderTitle>
-                  {'View JSON of ' + (displayMonitor.name || '')}
+                  {'View JSON of ' + (displayMonitor.name || '')}{' '}
                 </EuiModalHeaderTitle>
               </EuiModalHeader>
 

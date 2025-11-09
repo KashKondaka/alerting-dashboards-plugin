@@ -7,14 +7,14 @@ import React, { Component } from 'react';
 import MonitorDetailsV1 from './MonitorDetailsV1';
 import MonitorDetailsV2 from './MonitorDetailsV2';
 import { MONITOR_ACTIONS } from '../../../utils/constants';
-import { getDataSourceQueryObj } from '../../utils/helpers';
 import { isPplAlertingEnabled } from '../../../services';
+import { getDataSourceQueryObj } from '../../utils/helpers';
 
 /**
  * Router component that decides whether to show v1 or v2 MonitorDetails
- * based on the stored view mode and monitor type (for edit flow)
+ * based on the viewMode (classic vs new) stored in localStorage
  */
-export default class MonitorDetailsRouter extends Component {
+export default class MonitorDetails extends Component {
   state = {
     resolvedViewMode: undefined,
   };
@@ -38,26 +38,30 @@ export default class MonitorDetailsRouter extends Component {
   }
 
   getBaseViewMode = () => {
+    const pplEnabled = isPplAlertingEnabled();
+
     const searchParams = new URLSearchParams(this.props.location.search);
     const urlViewMode = searchParams.get('viewMode');
-    if (urlViewMode === 'classic' || urlViewMode === 'new') {
+    if (pplEnabled && (urlViewMode === 'classic' || urlViewMode === 'new')) {
       return urlViewMode;
     }
 
-    try {
-      const stored = localStorage.getItem('alerting_monitors_view_mode');
-      if (stored === 'classic' || stored === 'new') {
-        return stored;
+    if (pplEnabled) {
+      try {
+        const stored = localStorage.getItem('alerting_monitors_view_mode');
+        if (stored === 'classic' || stored === 'new') {
+          return stored;
+        }
+      } catch (e) {
+        console.error('Error reading viewMode from localStorage:', e);
       }
-    } catch (e) {
-      // eslint-disable-next-line no-console
-      console.error('Error reading viewMode from localStorage:', e);
+      return 'new';
     }
 
-    return 'new';
+    return 'classic';
   };
 
-  isPplMonitor = (monitor) => {
+  isV2Monitor = (monitor) => {
     if (!monitor) return false;
     if (monitor.monitor_v2 || monitor.ppl_monitor) return true;
     const queryLanguage = monitor.query_language || monitor.queryLanguage;
@@ -69,13 +73,13 @@ export default class MonitorDetailsRouter extends Component {
 
   resolveViewMode = async () => {
     const baseViewMode = this.getBaseViewMode();
+    const pplEnabled = isPplAlertingEnabled();
     const searchParams = new URLSearchParams(this.props.location.search);
     const isEditAction = searchParams.get('action') === MONITOR_ACTIONS.EDIT_MONITOR;
-    const pplEnabled = isPplAlertingEnabled();
 
-    if (!isEditAction) {
+    if (!isEditAction || !pplEnabled) {
       if (this._isMounted) {
-        this.setState({ resolvedViewMode: pplEnabled ? baseViewMode : 'classic' });
+        this.setState({ resolvedViewMode: baseViewMode });
       }
       return;
     }
@@ -85,23 +89,29 @@ export default class MonitorDetailsRouter extends Component {
       const dataSourceQuery = getDataSourceQueryObj();
       const monitorId = this.props.match?.params?.monitorId;
       if (monitorId) {
-        const resp = await this.props.httpClient.get(
-          `../api/alerting/monitors/${encodeURIComponent(monitorId)}`,
-          dataSourceQuery
-        );
-        const monitor = resp?.resp;
-        if (monitor) {
-          resolvedViewMode = this.isPplMonitor(monitor) ? 'new' : 'classic';
+        const tryGet = async (path) => {
+          try {
+            const result = await this.props.httpClient.get(path, dataSourceQuery);
+            return result?.ok ? result : null;
+          } catch (err) {
+            return null;
+          }
+        };
+
+        const v2Resp = await tryGet(`../api/alerting/v2/monitors/${encodeURIComponent(monitorId)}`);
+        if (v2Resp?.resp && this.isV2Monitor(v2Resp.resp)) {
+          resolvedViewMode = 'new';
+        } else {
+          const v1Resp = await tryGet(`../api/alerting/monitors/${encodeURIComponent(monitorId)}`);
+          if (v1Resp?.resp) {
+            resolvedViewMode = this.isV2Monitor(v1Resp.resp) ? 'new' : 'classic';
+          }
         }
       }
     } catch (err) {
       // eslint-disable-next-line no-console
       console.error('MonitorDetails: unable to determine monitor type for edit view', err);
       resolvedViewMode = baseViewMode;
-    }
-
-    if (!pplEnabled) {
-      resolvedViewMode = 'classic';
     }
 
     if (this._isMounted) {
@@ -123,11 +133,11 @@ export default class MonitorDetailsRouter extends Component {
       return null;
     }
 
-    const pplEnabled = isPplAlertingEnabled();
-    if (viewMode === 'classic' || !pplEnabled) {
+    // Route to the appropriate MonitorDetails version
+    if (!isPplAlertingEnabled() || viewMode === 'classic') {
       return <MonitorDetailsV1 {...this.props} />;
+    } else {
+      return <MonitorDetailsV2 {...this.props} />;
     }
-
-    return <MonitorDetailsV2 {...this.props} />;
   }
 }

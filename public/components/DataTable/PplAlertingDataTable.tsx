@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import './AlertingDataTable.scss';
+import './PplAlertingDataTable.scss';
 import React, { useState, useMemo } from 'react';
 import {
   EuiSmallButtonIcon,
@@ -23,7 +23,7 @@ import { FormattedMessage } from '@osd/i18n/react';
 import { i18n } from '@osd/i18n';
 import dompurify from 'dompurify';
 
-interface AlertingDataTableProps {
+interface PplAlertingDataTableProps {
   pplResponse: any;
   isLoading?: boolean;
   services: any;
@@ -313,9 +313,9 @@ const Pagination: React.FC<{
 };
 
 /**
- * Main AlertingDataTable Component
+ * Main PplAlertingDataTable Component
  */
-export const AlertingDataTable: React.FC<AlertingDataTableProps> = ({
+export const PplAlertingDataTable: React.FC<PplAlertingDataTableProps> = ({
   pplResponse,
   isLoading = false,
 }) => {

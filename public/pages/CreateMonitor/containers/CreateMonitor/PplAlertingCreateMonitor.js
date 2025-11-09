@@ -49,7 +49,7 @@ import { getPerformanceModal } from '../../components/QueryPerformance/QueryPerf
 import { isDataSourceChanged } from '../../../utils/helpers';
 import { PageHeader } from '../../../../components/PageHeader/PageHeader';
 import { QueryEditor } from '../../components/QueryEditor';
-import { AlertingDataTable } from '../../../../components/DataTable';
+import { PplAlertingDataTable } from '../../../../components/DataTable';
 import { CoreContext } from '../../../../utils/CoreContext';
 import { setDataSource, isPplAlertingEnabled } from '../../../../services';
 
@@ -512,7 +512,7 @@ class PplAlertingCreateMonitor extends Component {
           ) : this.state.previewError ? (
             <EuiCodeBlock isCopyable>{this.state.previewError}</EuiCodeBlock>
           ) : (
-            <AlertingDataTable
+            <PplAlertingDataTable
               pplResponse={this.state.previewResult}
               isLoading={this.state.previewLoading}
               className="ppl-preview-table"
