@@ -1,0 +1,12 @@
+.alertingDataTable {
+  .alertingDataTable__table {
+    .alertingDataTable__cell {
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 280px;
+    }
+  }
+}
+
+
