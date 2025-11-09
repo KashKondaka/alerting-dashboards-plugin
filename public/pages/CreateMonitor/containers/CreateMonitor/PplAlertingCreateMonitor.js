@@ -42,8 +42,8 @@ import {
   findCommonDateFields,
 } from './utils/pplAlertingHelpers';
 import { SubmitErrorHandler } from '../../../../utils/SubmitErrorHandler';
-import ConfigureTriggers from '../../../CreateTrigger/containers/ConfigureTriggers';
-import { triggerToFormik } from '../../../CreateTrigger/containers/CreateTrigger/utils/triggerToFormik';
+import ConfigureTriggersPpl from '../../../CreateTrigger/containers/ConfigureTriggers/ConfigureTriggersPpl';
+import { triggerToFormikPpl } from '../../../CreateTrigger/containers/CreateTrigger/utils/triggerToFormikPpl';
 import { MONITOR_TYPE, SEARCH_TYPE } from '../../../../utils/constants';
 import { getPerformanceModal } from '../../components/QueryPerformance/QueryPerformance';
 import { isDataSourceChanged } from '../../../utils/helpers';
@@ -86,7 +86,7 @@ class PplAlertingCreateMonitor extends Component {
 
     let triggerToEdit;
     if (edit && monitorToEdit) {
-      triggerToEdit = triggerToFormik(_.get(monitorToEdit, 'triggers', []), monitorToEdit);
+      triggerToEdit = triggerToFormikPpl(_.get(monitorToEdit, 'triggers', []));
       const monitorTriggers = _.get(monitorToEdit, 'ppl_monitor.triggers', []);
       if (Array.isArray(monitorTriggers) && monitorTriggers.length) {
         initialValues.triggerDefinitions = monitorTriggers.map((t) => ({
@@ -822,14 +822,13 @@ class PplAlertingCreateMonitor extends Component {
                           <>
                             <FieldArray name="triggerDefinitions" validateOnChange>
                               {(triggerArrayHelpers) => (
-                                <ConfigureTriggers
-                                  edit={edit}
+                                <ConfigureTriggersPpl
                                   triggerArrayHelpers={triggerArrayHelpers}
+                                  edit={edit}
                                   monitor={{
                                     ppl_monitor: { triggers: values.triggerDefinitions || [] },
                                   }}
                                   monitorValues={values}
-                                  touched={touched}
                                   setFlyout={this.props.setFlyout}
                                   triggers={values.triggerDefinitions || []}
                                   triggerValues={values}

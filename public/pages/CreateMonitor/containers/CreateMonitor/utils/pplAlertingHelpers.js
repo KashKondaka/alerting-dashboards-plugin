@@ -15,7 +15,7 @@ import {
   formikToTrigger,
   formikToTriggerUiMetadata,
 } from '../../../../CreateTrigger/containers/CreateTrigger/utils/formikToTrigger';
-import { triggerToFormik } from '../../../../CreateTrigger/containers/CreateTrigger/utils/triggerToFormik';
+import { triggerToFormikPpl } from '../../../../CreateTrigger/containers/CreateTrigger/utils/triggerToFormikPpl';
 import { TRIGGER_TYPE } from '../../../../CreateTrigger/containers/CreateTrigger/utils/constants';
 import { getInitialTriggerValues } from '../../../../CreateTrigger/components/AddTriggerButton/utils';
 import { AGGREGATION_TYPES } from '../../../components/MonitorExpressions/expressions/utils/constants';
@@ -107,7 +107,7 @@ export const getInitialValues = ({
   }
 
   if (edit && monitorToEdit) {
-    const triggers = triggerToFormik(_.get(monitorToEdit, 'triggers', []), monitorToEdit);
+    const triggers = triggerToFormikPpl(_.get(monitorToEdit, 'triggers', []));
     initialValues = {
       ...pplAlertingMonitorToFormik(monitorToEdit),
       triggerDefinitions: triggers.triggerDefinitions,
