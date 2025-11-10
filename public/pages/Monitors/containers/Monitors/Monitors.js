@@ -357,10 +357,20 @@ export default class Monitors extends Component {
       monitorDetail.id = detailId;
       if (!monitorDetail._id) monitorDetail._id = detailId;
       if (detailResp.ifSeqNo !== undefined && monitorDetail._seq_no === undefined) {
+        monitorDetail.ifSeqNo = detailResp.ifSeqNo;
         monitorDetail._seq_no = detailResp.ifSeqNo;
+      } else if (monitorDetail._seq_no !== undefined && monitorDetail.ifSeqNo === undefined) {
+        monitorDetail.ifSeqNo = monitorDetail._seq_no;
       }
+
       if (detailResp.ifPrimaryTerm !== undefined && monitorDetail._primary_term === undefined) {
+        monitorDetail.ifPrimaryTerm = detailResp.ifPrimaryTerm;
         monitorDetail._primary_term = detailResp.ifPrimaryTerm;
+      } else if (
+        monitorDetail._primary_term !== undefined &&
+        monitorDetail.ifPrimaryTerm === undefined
+      ) {
+        monitorDetail.ifPrimaryTerm = monitorDetail._primary_term;
       }
       const ifSeqNo = detailResp.ifSeqNo ?? item.ifSeqNo;
       const ifPrimaryTerm = detailResp.ifPrimaryTerm ?? item.ifPrimaryTerm;
@@ -401,6 +411,8 @@ export default class Monitors extends Component {
           '_version',
           'ifSeqNo',
           'ifPrimaryTerm',
+          '_seq_no',
+          '_primary_term',
         ]);
 
         if (Array.isArray(cleanedPplMonitor.triggers)) {

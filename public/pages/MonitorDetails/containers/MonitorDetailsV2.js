@@ -243,6 +243,25 @@ export default class MonitorDetails extends Component {
       const normalizedMonitor = migrateTriggerMetadata(mergedMonitor);
       if (!normalizedMonitor.id) normalizedMonitor.id = id;
       if (!normalizedMonitor._id) normalizedMonitor._id = normalizedMonitor.id || id;
+      if (ifSeqNo !== undefined) {
+        normalizedMonitor.ifSeqNo = ifSeqNo;
+        if (normalizedMonitor._seq_no === undefined) normalizedMonitor._seq_no = ifSeqNo;
+      } else if (
+        normalizedMonitor._seq_no !== undefined &&
+        normalizedMonitor.ifSeqNo === undefined
+      ) {
+        normalizedMonitor.ifSeqNo = normalizedMonitor._seq_no;
+      }
+      if (ifPrimaryTerm !== undefined) {
+        normalizedMonitor.ifPrimaryTerm = ifPrimaryTerm;
+        if (normalizedMonitor._primary_term === undefined)
+          normalizedMonitor._primary_term = ifPrimaryTerm;
+      } else if (
+        normalizedMonitor._primary_term !== undefined &&
+        normalizedMonitor.ifPrimaryTerm === undefined
+      ) {
+        normalizedMonitor.ifPrimaryTerm = normalizedMonitor._primary_term;
+      }
       if (ifSeqNo !== undefined && normalizedMonitor._seq_no === undefined) {
         normalizedMonitor._seq_no = ifSeqNo;
       }
@@ -354,6 +373,8 @@ export default class MonitorDetails extends Component {
           '_version',
           'ifSeqNo',
           'ifPrimaryTerm',
+          '_seq_no',
+          '_primary_term',
         ]);
 
         if (Array.isArray(cleanedPplMonitor.triggers)) {
