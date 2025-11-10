@@ -142,7 +142,7 @@ export default function (services, router, dataSourceEnabled) {
           id: schema.string(),
         }),
         query: createValidateQuerySchema(dataSourceEnabled, {
-          version: schema.number(),
+          version: schema.maybe(schema.number()),
         }),
       },
     },
@@ -157,7 +157,7 @@ export default function (services, router, dataSourceEnabled) {
           id: schema.string(),
         }),
         query: createValidateQuerySchema(dataSourceEnabled, {
-          version: schema.number(),
+          version: schema.maybe(schema.number()),
         }),
       },
     },

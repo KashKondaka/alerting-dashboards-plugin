@@ -241,6 +241,17 @@ export default class MonitorDetails extends Component {
           ? { monitor_type: monitor.monitor_type || 'query_level', ...monitor }
           : monitor;
       const normalizedMonitor = migrateTriggerMetadata(mergedMonitor);
+      if (!normalizedMonitor.id) normalizedMonitor.id = id;
+      if (!normalizedMonitor._id) normalizedMonitor._id = normalizedMonitor.id || id;
+      if (ifSeqNo !== undefined && normalizedMonitor._seq_no === undefined) {
+        normalizedMonitor._seq_no = ifSeqNo;
+      }
+      if (ifPrimaryTerm !== undefined && normalizedMonitor._primary_term === undefined) {
+        normalizedMonitor._primary_term = ifPrimaryTerm;
+      }
+      if (monitorVersion !== undefined && normalizedMonitor.version === undefined) {
+        normalizedMonitor.version = monitorVersion;
+      }
 
       if (isWorkflow) {
         this.updateDelegateMonitors(normalizedMonitor);
@@ -347,13 +358,34 @@ export default class MonitorDetails extends Component {
 
         if (Array.isArray(cleanedPplMonitor.triggers)) {
           cleanedPplMonitor.triggers = cleanedPplMonitor.triggers.map((trigger) =>
-            _.omit(trigger, ['id', 'last_triggered_time', 'last_execution_time'])
+            _.omit(trigger, [
+              'id',
+              'last_triggered_time',
+              'last_execution_time',
+              'ui_metadata',
+              'uiMetadata',
+            ])
           );
         }
 
-        resp = await httpClient.put(`../api/alerting/monitors/${monitorId}`, {
-          query: queryParams,
-          body: JSON.stringify({ monitor_mode: 'ppl', ppl_monitor: cleanedPplMonitor }),
+        delete cleanedPplMonitor.ui_metadata;
+        delete cleanedPplMonitor.uiMetadata;
+        delete cleanedPplMonitor.monitor_v2;
+        delete cleanedPplMonitor.monitorV2;
+
+        const v2Query = { ...queryParams };
+        if (v2Query.ifSeqNo !== undefined) {
+          v2Query.if_seq_no = v2Query.ifSeqNo;
+          delete v2Query.ifSeqNo;
+        }
+        if (v2Query.ifPrimaryTerm !== undefined) {
+          v2Query.if_primary_term = v2Query.ifPrimaryTerm;
+          delete v2Query.ifPrimaryTerm;
+        }
+
+        resp = await httpClient.put(`../api/alerting/v2/monitors/${monitorId}`, {
+          query: v2Query,
+          body: JSON.stringify({ ppl_monitor: cleanedPplMonitor }),
         });
       } else {
         const legacyPayload = _.omit({ ...monitor, ...update }, [

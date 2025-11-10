@@ -85,13 +85,32 @@ export default class MonitorDetails extends Component {
       const dataSourceQuery = getDataSourceQueryObj();
       const monitorId = this.props.match?.params?.monitorId;
       if (monitorId) {
-        const resp = await this.props.httpClient.get(
-          `../api/alerting/monitors/${encodeURIComponent(monitorId)}`,
-          dataSourceQuery
-        );
-        const monitor = resp?.resp;
-        if (monitor) {
-          resolvedViewMode = this.isV2Monitor(monitor) ? 'new' : 'classic';
+        const fetchV2 = async () =>
+          this.props.httpClient
+            .get(`../api/alerting/v2/monitors/${encodeURIComponent(monitorId)}`, dataSourceQuery)
+            .catch((err) => err);
+        const fetchLegacy = async () =>
+          this.props.httpClient
+            .get(`../api/alerting/monitors/${encodeURIComponent(monitorId)}`, dataSourceQuery)
+            .catch((err) => err);
+
+        let resp = await fetchV2();
+        if (!(resp?.ok && resp?.resp)) {
+          const shouldFallback =
+            resp?.status === 404 ||
+            resp?.body?.status === 404 ||
+            String(resp?.resp ?? resp?.message ?? '')
+              .toLowerCase()
+              .includes('no handler found');
+          if (shouldFallback) {
+            resp = await fetchLegacy();
+          }
+        } else {
+          resolvedViewMode = 'new';
+        }
+
+        if (!resolvedViewMode && resp?.ok && resp?.resp) {
+          resolvedViewMode = this.isV2Monitor(resp.resp) ? 'new' : 'classic';
         }
       }
     } catch (err) {
@@ -127,4 +146,3 @@ export default class MonitorDetails extends Component {
     }
   }
 }
-

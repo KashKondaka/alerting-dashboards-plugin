@@ -39,7 +39,8 @@ export const backendErrorNotification = (notifications, actionName, objectName, 
   if (errorMessage instanceof Error) {
     messageText = errorMessage.message || String(errorMessage);
   } else if (typeof errorMessage === 'object') {
-    messageText = errorMessage?.message || errorMessage?.body?.message || JSON.stringify(errorMessage);
+    messageText =
+      errorMessage?.message || errorMessage?.body?.message || JSON.stringify(errorMessage);
   } else if (errorMessage) {
     messageText = String(errorMessage);
   } else {
@@ -78,9 +79,35 @@ export const inputLimitText = (
 export async function deleteMonitor(monitor, httpClient, notifications, dataSourceQuery) {
   const { id, version } = monitor;
   const poolType = monitor.item_type === 'composite' ? 'workflows' : 'monitors';
+  const monitorDoc = monitor?.monitor || {};
+  const pplMonitor =
+    _.get(monitorDoc, 'monitor_v2.ppl_monitor') ||
+    _.get(monitorDoc, 'monitorV2.ppl_monitor') ||
+    monitorDoc?.ppl_monitor ||
+    monitor?.ppl_monitor;
+  const monitorMode = monitorDoc?.monitor_mode || monitorDoc?.monitorMode || monitor?.monitor_mode;
+  const queryLanguage =
+    monitorDoc?.query_language ||
+    monitorDoc?.queryLanguage ||
+    monitor?.query_language ||
+    monitor?.queryLanguage;
+  const isPplMonitor =
+    Boolean(pplMonitor) ||
+    (typeof monitorMode === 'string' && monitorMode.toLowerCase() === 'ppl') ||
+    (typeof queryLanguage === 'string' && queryLanguage.toLowerCase() === 'ppl');
+
+  const query = { ...(dataSourceQuery?.query ?? {}) };
+  if (!isPplMonitor && version !== undefined && version !== null) {
+    query.version = version;
+  }
+
+  const apiPath =
+    isPplMonitor && poolType === 'monitors'
+      ? `../api/alerting/v2/monitors/${id}`
+      : `../api/alerting/${poolType}/${id}`;
 
   return httpClient
-    .delete(`../api/alerting/${poolType}/${id}`, { query: { version, ...dataSourceQuery?.query } })
+    .delete(apiPath, { query })
     .then((resp) => {
       if (!resp.ok) {
         backendErrorNotification(notifications, 'delete', 'monitor', resp.resp);

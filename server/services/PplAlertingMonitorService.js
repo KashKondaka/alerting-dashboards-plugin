@@ -370,6 +370,12 @@ export default class PplAlertingMonitorService extends MDSEnabledClientService {
       };
       normalized.triggers = Array.isArray(normalized.triggers) ? normalized.triggers : [];
       normalized.ui_metadata = normalized.ui_metadata || { triggers: {} };
+      if (!normalized._id) normalized._id = id;
+      if (!normalized.id) normalized.id = id;
+      const seqNo = _.get(raw, '_seq_no', null);
+      const primaryTerm = _.get(raw, '_primary_term', null);
+      if (normalized._seq_no === undefined) normalized._seq_no = seqNo;
+      if (normalized._primary_term === undefined) normalized._primary_term = primaryTerm;
 
       return res.ok({
         body: {

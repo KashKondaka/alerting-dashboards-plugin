@@ -96,6 +96,8 @@ export default function (services, router, dataSourceEnabled) {
         query: createValidateQuerySchema(dataSourceEnabled, {
           if_seq_no: schema.maybe(schema.number()),
           if_primary_term: schema.maybe(schema.number()),
+          ifSeqNo: schema.maybe(schema.number()),
+          ifPrimaryTerm: schema.maybe(schema.number()),
         }),
       },
     },

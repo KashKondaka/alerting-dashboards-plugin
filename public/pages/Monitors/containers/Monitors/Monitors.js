@@ -1,3 +1,15 @@
+const toV2QueryParams = (query = {}) => {
+  const next = { ...query };
+  if (next.ifSeqNo !== undefined) {
+    next.if_seq_no = next.ifSeqNo;
+    delete next.ifSeqNo;
+  }
+  if (next.ifPrimaryTerm !== undefined) {
+    next.if_primary_term = next.ifPrimaryTerm;
+    delete next.ifPrimaryTerm;
+  }
+  return next;
+};
 /*
  * Copyright OpenSearch Contributors
  * SPDX-License-Identifier: Apache-2.0
@@ -311,10 +323,29 @@ export default class Monitors extends Component {
     const dataSourceQuery = getDataSourceQueryObj();
 
     try {
-      const detailResp = await httpClient.get(
-        `../api/alerting/monitors/${item.id}`,
-        dataSourceQuery
-      );
+      const viewMode = this.getEffectiveViewMode();
+      const isWorkflow = item.item_type === MONITOR_TYPE.COMPOSITE;
+      const fetchLegacy = () =>
+        httpClient.get(
+          `../api/alerting/${isWorkflow ? 'workflows' : 'monitors'}/${item.id}`,
+          dataSourceQuery
+        );
+      const fetchV2 = () =>
+        httpClient.get(`../api/alerting/v2/monitors/${item.id}`, dataSourceQuery);
+
+      let detailResp;
+      if (viewMode === 'new' && !isWorkflow) {
+        try {
+          detailResp = await fetchV2();
+        } catch (err) {
+          detailResp = err;
+        }
+        if (!detailResp?.ok) {
+          detailResp = await fetchLegacy().catch((err) => err);
+        }
+      } else {
+        detailResp = await fetchLegacy().catch((err) => err);
+      }
 
       if (!detailResp?.ok) {
         backendErrorNotification(notifications, 'get', 'monitor', detailResp?.resp);
@@ -322,6 +353,15 @@ export default class Monitors extends Component {
       }
 
       const monitorDetail = detailResp.resp || {};
+      const detailId = monitorDetail.id || monitorDetail._id || item.id;
+      monitorDetail.id = detailId;
+      if (!monitorDetail._id) monitorDetail._id = detailId;
+      if (detailResp.ifSeqNo !== undefined && monitorDetail._seq_no === undefined) {
+        monitorDetail._seq_no = detailResp.ifSeqNo;
+      }
+      if (detailResp.ifPrimaryTerm !== undefined && monitorDetail._primary_term === undefined) {
+        monitorDetail._primary_term = detailResp.ifPrimaryTerm;
+      }
       const ifSeqNo = detailResp.ifSeqNo ?? item.ifSeqNo;
       const ifPrimaryTerm = detailResp.ifPrimaryTerm ?? item.ifPrimaryTerm;
       const dataSourceId = getDataSourceId();
@@ -365,14 +405,34 @@ export default class Monitors extends Component {
 
         if (Array.isArray(cleanedPplMonitor.triggers)) {
           cleanedPplMonitor.triggers = cleanedPplMonitor.triggers.map((trigger) =>
-            _.omit(trigger, ['id', 'last_triggered_time', 'last_execution_time'])
+            _.omit(trigger, [
+              'id',
+              'last_triggered_time',
+              'last_execution_time',
+              'ui_metadata',
+              'uiMetadata',
+            ])
           );
         }
 
+        delete cleanedPplMonitor.ui_metadata;
+        delete cleanedPplMonitor.uiMetadata;
+        delete cleanedPplMonitor.monitor_v2;
+        delete cleanedPplMonitor.monitorV2;
+
+        const path =
+          viewMode === 'new'
+            ? `../api/alerting/v2/monitors/${item.id}`
+            : `../api/alerting/monitors/${item.id}`;
+        const bodyPayload =
+          viewMode === 'new'
+            ? { ppl_monitor: cleanedPplMonitor }
+            : { monitor_mode: 'ppl', ppl_monitor: cleanedPplMonitor };
+
         return httpClient
-          .put(`../api/alerting/monitors/${item.id}`, {
-            query,
-            body: JSON.stringify({ monitor_mode: 'ppl', ppl_monitor: cleanedPplMonitor }),
+          .put(path, {
+            query: viewMode === 'new' ? toV2QueryParams(query) : query,
+            body: JSON.stringify(bodyPayload),
           })
           .then((resp) => {
             if (!resp.ok) {
