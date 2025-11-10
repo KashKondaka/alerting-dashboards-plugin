@@ -129,6 +129,80 @@ export default class PplAlertingMonitorService extends MDSEnabledClientService {
     return normalized;
   }
 
+  buildMonitorSearchRequestBody(query = {}) {
+    const { from, size, search, sortField, sortDirection, state } = query;
+
+    const parsedFrom = Number.isFinite(from) ? from : Number(from);
+    const parsedSize = Number.isFinite(size) ? size : Number(size);
+
+    const body = {
+      track_total_hits: true,
+      seq_no_primary_term: true,
+      version: true,
+      from: Number.isFinite(parsedFrom) && parsedFrom >= 0 ? parsedFrom : 0,
+      size: Number.isFinite(parsedSize) && parsedSize > 0 ? parsedSize : 20,
+      query: { match_all: {} },
+    };
+
+    const boolQuery = { must: [], filter: [] };
+    const searchText = typeof search === 'string' ? search.trim() : '';
+    if (searchText) {
+      const escaped = searchText.replace(/([+\-&|!(){}\[\]^"~*?:\\/])/g, '\\$1');
+      const wildcardQuery = escaped
+        .split(/\s+/)
+        .filter(Boolean)
+        .map((token) => `*${token}*`)
+        .join(' AND ');
+      const queryValue = wildcardQuery || `*${escaped}*`;
+      boolQuery.must.push({
+        query_string: {
+          default_field: 'monitor_v2.ppl_monitor.name.keyword',
+          default_operator: 'AND',
+          query: queryValue,
+        },
+      });
+    }
+
+    const normalizedState = typeof state === 'string' ? state.toLowerCase() : '';
+    if (normalizedState && normalizedState !== 'all') {
+      const enabled = normalizedState === 'enabled';
+      boolQuery.filter.push({
+        term: { 'monitor_v2.ppl_monitor.enabled': enabled },
+      });
+    }
+
+    if (boolQuery.must.length || boolQuery.filter.length) {
+      body.query = { bool: {} };
+      if (boolQuery.must.length) {
+        body.query.bool.must = boolQuery.must;
+      }
+      if (boolQuery.filter.length) {
+        body.query.bool.filter = boolQuery.filter;
+      }
+    }
+
+    const sortFieldMap = {
+      name: 'monitor_v2.ppl_monitor.name.keyword',
+      last_update_time: 'monitor_v2.ppl_monitor.last_update_time',
+      lastUpdateTime: 'monitor_v2.ppl_monitor.last_update_time',
+      state: 'monitor_v2.ppl_monitor.enabled',
+    };
+    const sortKey = sortFieldMap[sortField] || (sortField ? String(sortField) : null);
+    if (sortKey) {
+      const direction = typeof sortDirection === 'string' ? sortDirection.toLowerCase() : 'asc';
+      body.sort = [
+        {
+          [sortKey]: {
+            order: direction === 'desc' ? 'desc' : 'asc',
+            unmapped_type: 'keyword',
+          },
+        },
+      ];
+    }
+
+    return body;
+  }
+
   async proxyPPLQuery(context, req, res) {
     try {
       const client = this.getClientBasedOnDataSource(context, req);
@@ -169,13 +243,17 @@ export default class PplAlertingMonitorService extends MDSEnabledClientService {
     try {
       const client = this.getClientBasedOnDataSource(context, req);
       const query = this.normalizeMonitorListQuery(req.query);
-      const qs = querystring.stringify(query);
-      const resp = await client('transport.request', {
-        method: 'GET',
-        path: `${PPL_MONITOR_BASE_API}${qs ? `?${qs}` : ''}`,
+      const { dataSourceId, ...searchParams } = query;
+      const searchBody = this.buildMonitorSearchRequestBody(searchParams);
+      const path = `${PPL_MONITOR_BASE_API}/_search`;
+      const requestParams = {
+        method: 'POST',
+        path,
+        body: searchBody,
         headers: DEFAULT_HEADERS,
-      });
-      return res.ok({ body: resp });
+      };
+      const resp = await client('transport.request', requestParams);
+      return res.ok({ body: { ok: true, ...resp } });
     } catch (err) {
       this.logError('Alerting - PplAlertingMonitorService - getMonitors', err);
       return res.ok({ body: { ok: false, resp: err?.message ?? err } });

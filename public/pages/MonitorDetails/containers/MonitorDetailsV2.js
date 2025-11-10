@@ -102,9 +102,10 @@ export default class MonitorDetails extends Component {
       ...monitor,
       name: v2.name ?? monitor?.name,
       enabled: typeof v2.enabled === 'boolean' ? v2.enabled : monitor?.enabled,
-      triggers: Array.isArray(v2.triggers) ? v2.triggers : (monitor?.triggers || []),
+      triggers: Array.isArray(v2.triggers) ? v2.triggers : monitor?.triggers || [],
       schedule: v2.schedule ?? monitor?.schedule,
-      look_back_window: v2.look_back_window_minutes ?? v2.look_back_window ?? monitor?.look_back_window,
+      look_back_window:
+        v2.look_back_window_minutes ?? v2.look_back_window ?? monitor?.look_back_window,
       query_language: v2.query_language ?? monitor?.query_language,
       query: v2.query ?? monitor?.query,
       description: v2.description ?? monitor?.description,
@@ -210,48 +211,81 @@ export default class MonitorDetails extends Component {
   getMonitor = (id) => {
     const { httpClient } = this.props;
     const isWorkflow = this.isWorkflow();
-    // Construct the full URL with the query parameters
-    const url = `../api/alerting/${isWorkflow ? 'workflows' : 'monitors'}/${id}`;
-    // Make the HTTP GET request with the constructed URL and query parameters
     const dataSourceQuery = getDataSourceQueryObj();
-    const response = httpClient.get(url, dataSourceQuery);
-    response
+
+    const fetchLegacy = () =>
+      httpClient.get(
+        `../api/alerting/${isWorkflow ? 'workflows' : 'monitors'}/${id}`,
+        dataSourceQuery
+      );
+    const fetchV2 = () => httpClient.get(`../api/alerting/v2/monitors/${id}`, dataSourceQuery);
+
+    const handleSuccess = (resp) => {
+      const {
+        ok,
+        resp: monitor,
+        version: monitorVersion,
+        dayCount,
+        activeCount,
+        ifSeqNo,
+        ifPrimaryTerm,
+      } = resp || {};
+
+      if (!ok || !monitor) {
+        this.props.history.push('/monitors');
+        return;
+      }
+
+      const mergedMonitor =
+        monitor && typeof monitor === 'object'
+          ? { monitor_type: monitor.monitor_type || 'query_level', ...monitor }
+          : monitor;
+      const normalizedMonitor = migrateTriggerMetadata(mergedMonitor);
+
+      if (isWorkflow) {
+        this.updateDelegateMonitors(normalizedMonitor);
+      }
+
+      this.setState({
+        ifSeqNo,
+        ifPrimaryTerm,
+        monitor: normalizedMonitor,
+        monitorVersion,
+        dayCount,
+        activeCount,
+        loading: false,
+        error: null,
+      });
+
+      const adId = _.get(normalizedMonitor, MONITOR_INPUT_DETECTOR_ID, undefined);
+      if (adId) {
+        this.getDetector(adId);
+      }
+      this.setState({ tabContent: this.renderAlertsTable() });
+    };
+
+    if (isWorkflow) {
+      fetchLegacy()
+        .then(handleSuccess)
+        .catch((err) => console.log('err', err));
+      return;
+    }
+
+    fetchV2()
       .then((resp) => {
-        const {
-          ok,
-          resp: monitor,
-          version: monitorVersion,
-          dayCount,
-          activeCount,
-          ifSeqNo,
-          ifPrimaryTerm,
-        } = resp;
-        if (ok) {
-          if (isWorkflow) {
-            this.updateDelegateMonitors(monitor);
-          }
-          this.setState({
-            ifSeqNo,
-            ifPrimaryTerm,
-            monitor: migrateTriggerMetadata(monitor),
-            monitorVersion,
-            dayCount,
-            activeCount,
-            loading: false,
-            error: null,
-          });
-          const adId = _.get(monitor, MONITOR_INPUT_DETECTOR_ID, undefined);
-          if (adId) {
-            this.getDetector(adId);
-          }
-          this.setState({ tabContent: this.renderAlertsTable() });
+        if (resp?.ok) {
+          handleSuccess(resp);
         } else {
-          // TODO: 404 handling
-          this.props.history.push('/monitors');
+          // fall back to legacy endpoint
+          fetchLegacy()
+            .then(handleSuccess)
+            .catch((err) => console.log('err', err));
         }
       })
-      .catch((err) => {
-        console.log('err', err);
+      .catch(() => {
+        fetchLegacy()
+          .then(handleSuccess)
+          .catch((err) => console.log('err', err));
       });
   };
 
@@ -300,10 +334,16 @@ export default class MonitorDetails extends Component {
           this.getV2Ppl(monitor) || monitor?.ppl_monitor || monitor || {}
         );
 
-        const cleanedPplMonitor = _.omit(
-          { ...basePplMonitor, ...update },
-          ['id', '_id', 'item_type', 'monitor_type', 'version', '_version', 'ifSeqNo', 'ifPrimaryTerm']
-        );
+        const cleanedPplMonitor = _.omit({ ...basePplMonitor, ...update }, [
+          'id',
+          '_id',
+          'item_type',
+          'monitor_type',
+          'version',
+          '_version',
+          'ifSeqNo',
+          'ifPrimaryTerm',
+        ]);
 
         if (Array.isArray(cleanedPplMonitor.triggers)) {
           cleanedPplMonitor.triggers = cleanedPplMonitor.triggers.map((trigger) =>
@@ -316,10 +356,16 @@ export default class MonitorDetails extends Component {
           body: JSON.stringify({ monitor_mode: 'ppl', ppl_monitor: cleanedPplMonitor }),
         });
       } else {
-        const legacyPayload = _.omit(
-          { ...monitor, ...update },
-          ['id', '_id', 'item_type', 'currentTime', 'version', '_version', 'ifSeqNo', 'ifPrimaryTerm']
-        );
+        const legacyPayload = _.omit({ ...monitor, ...update }, [
+          'id',
+          '_id',
+          'item_type',
+          'currentTime',
+          'version',
+          '_version',
+          'ifSeqNo',
+          'ifPrimaryTerm',
+        ]);
 
         const path =
           monitor.workflow_type && monitor.workflow_type === MONITOR_TYPE.COMPOSITE_LEVEL
@@ -368,7 +414,8 @@ export default class MonitorDetails extends Component {
   renderNoTriggersCallOut = () => {
     const { editMonitor } = this.state;
     const displayMonitor = this.getDisplayMonitor();
-    const hasNoTriggers = !Array.isArray(displayMonitor?.triggers) || displayMonitor.triggers.length === 0;
+    const hasNoTriggers =
+      !Array.isArray(displayMonitor?.triggers) || displayMonitor.triggers.length === 0;
 
     const callout = (
       <EuiCallOut
@@ -583,11 +630,7 @@ export default class MonitorDetails extends Component {
     if (useUpdatedUx) {
       monitorActions.unshift(
         <EuiToolTip content="Delete">
-          <EuiSmallButton
-            onClick={this.onDeleteClick}
-            color="danger"
-            aria-label="Delete"
-          >
+          <EuiSmallButton onClick={this.onDeleteClick} color="danger" aria-label="Delete">
             <EuiIcon type="trash" />
           </EuiSmallButton>
         </EuiToolTip>
@@ -688,7 +731,9 @@ export default class MonitorDetails extends Component {
           <EuiOverlayMask>
             <EuiModal onClose={this.closeJsonModal} style={{ padding: '5px 30px' }}>
               <EuiModalHeader>
-                <EuiModalHeaderTitle>{'View JSON of ' + (displayMonitor.name || '')} </EuiModalHeaderTitle>
+                <EuiModalHeaderTitle>
+                  {'View JSON of ' + (displayMonitor.name || '')}{' '}
+                </EuiModalHeaderTitle>
               </EuiModalHeader>
 
               <EuiModalBody>

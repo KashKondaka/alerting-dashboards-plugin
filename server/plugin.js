@@ -16,6 +16,7 @@ import {
   CrossClusterService,
   CommentsService,
 } from './services';
+import { FeatureFlagService } from './services/FeatureFlagService';
 import { FEATURE_FLAGS, PLUGIN_ID } from './services/utils/constants';
 import {
   alerts,
@@ -36,31 +37,7 @@ export class AlertingPlugin {
     this.globalConfig$ = initializerContext.config.legacy.globalConfig$;
     this.pluginConfig$ = initializerContext.config.create();
     this.core = null;
-    this.dynamicConfig = undefined;
-  }
-
-  async getDynamicConfig(request) {
-    if (this.dynamicConfig === undefined) {
-      const { dynamicConfigService } = this.core;
-      this.dynamicConfig = await dynamicConfigService.getStartService();
-    }
-
-    const client = this.dynamicConfig.getClient();
-    const dynamicConfigContextStore = this.dynamicConfig.createStoreFromRequest(request);
-    return await client.getConfig(
-      { pluginConfigPath: PLUGIN_ID },
-      { asyncLocalStorageContext: dynamicConfigContextStore }
-    );
-  }
-
-  async getConfigWithoutRequest() {
-    if (this.dynamicConfig === undefined) {
-      const { dynamicConfigService } = this.core;
-      this.dynamicConfig = await dynamicConfigService.getStartService();
-    }
-
-    const client = this.dynamicConfig.getClient();
-    return await client.getConfig({ pluginConfigPath: PLUGIN_ID });
+    this.featureFlagService = null;
   }
 
   async setup(core, { dataSource }) {
@@ -70,6 +47,13 @@ export class AlertingPlugin {
     const pluginConfig = await this.pluginConfig$.pipe(first()).toPromise();
 
     const dataSourceEnabled = !!dataSource;
+    const defaultPplEnabled = Boolean(pluginConfig?.pplAlertingEnabled);
+    this.featureFlagService = new FeatureFlagService(core, this.logger, {
+      pluginConfigPath: PLUGIN_ID,
+      defaults: {
+        [FEATURE_FLAGS.PPL_MONITOR]: defaultPplEnabled,
+      },
+    });
 
     // Create clusters
     const alertingESClient = createAlertingCluster(
@@ -106,8 +90,6 @@ export class AlertingPlugin {
       commentsService,
     };
 
-    const defaultPplEnabled = Boolean(pluginConfig?.pplAlertingEnabled);
-
     core.capabilities.registerProvider(() => ({
       alertingDashboards: {
         pplV2: defaultPplEnabled,
@@ -116,16 +98,24 @@ export class AlertingPlugin {
 
     core.capabilities.registerSwitcher(async (request) => {
       try {
-        const config = await this.getDynamicConfig(request);
-        const pplEnabled = config?.[FEATURE_FLAGS.PPL_MONITOR];
+        if (!this.featureFlagService) {
+          return {
+            alertingDashboards: {
+              pplV2: defaultPplEnabled,
+            },
+          };
+        }
+        const status = await this.featureFlagService.getFeatureStatus(request, [
+          FEATURE_FLAGS.PPL_MONITOR,
+        ]);
         return {
           alertingDashboards: {
-            pplV2: pplEnabled,
+            pplV2: Boolean(status?.[FEATURE_FLAGS.PPL_MONITOR]),
           },
         };
       } catch (err) {
         this.logger?.debug?.(
-          `[Alerting][Plugin] Failed to resolve dynamic PPL flag: ${err?.message ?? err}`
+          `[Alerting][Plugin] Failed to resolve dynamic feature flags: ${err?.message ?? err}`
         );
         return {
           alertingDashboards: {
@@ -137,14 +127,34 @@ export class AlertingPlugin {
 
     // Create router
     const router = core.http.createRouter();
-    let pplRoutesEnabled = defaultPplEnabled;
-    try {
-      const initialDynamicConfig = await this.getConfigWithoutRequest();
-      pplRoutesEnabled = initialDynamicConfig?.[FEATURE_FLAGS.PPL_MONITOR];
-    } catch (err) {
-      this.logger?.debug?.(
-        `[Alerting][Plugin] Failed to resolve initial dynamic PPL flag: ${err?.message ?? err}`
-      );
+    const registerPplRoutes = () => pplAlertingMonitors(services, router, dataSourceEnabled);
+
+    if (defaultPplEnabled) {
+      registerPplRoutes();
+    } else if (this.featureFlagService) {
+      core
+        .getStartServices()
+        .then(async () => {
+          try {
+            const config = await this.featureFlagService.getConfigFromDynamicStore();
+            if (config?.[FEATURE_FLAGS.PPL_MONITOR]) {
+              registerPplRoutes();
+            }
+          } catch (err) {
+            this.logger?.debug?.(
+              `[Alerting][Plugin] Failed to register PPL routes from dynamic config: ${
+                err?.message ?? err
+              }`
+            );
+          }
+        })
+        .catch((err) => {
+          this.logger?.debug?.(
+            `[Alerting][Plugin] Failed to resolve start services for dynamic PPL flag: ${
+              err?.message ?? err
+            }`
+          );
+        });
     }
 
     // Add server routes
@@ -152,9 +162,6 @@ export class AlertingPlugin {
     destinations(services, router, dataSourceEnabled);
     opensearch(services, router, dataSourceEnabled);
     monitors(services, router, dataSourceEnabled);
-    if (pplRoutesEnabled) {
-      pplAlertingMonitors(services, router, dataSourceEnabled);
-    }
     detectors(services, router, dataSourceEnabled);
     findings(services, router, dataSourceEnabled);
     crossCluster(services, router, dataSourceEnabled);

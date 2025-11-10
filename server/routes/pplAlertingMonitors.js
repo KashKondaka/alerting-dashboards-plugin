@@ -31,6 +31,7 @@ export default function (services, router, dataSourceEnabled) {
     alertState: schema.maybe(schema.string()),
     monitorIds: schema.maybe(schema.any()),
     monitorId: schema.maybe(schema.string()),
+    monitorType: schema.maybe(schema.string()),
   };
 
   router.post(
