@@ -17,7 +17,7 @@ import {
   CommentsService,
 } from './services';
 import { FeatureFlagService } from './services/FeatureFlagService';
-import { FEATURE_FLAGS } from './services/utils/constants';
+import { FEATURE_FLAGS, PLUGIN_ID } from './services/utils/constants';
 import {
   alerts,
   destinations,
@@ -29,25 +29,29 @@ import {
   crossCluster,
   comments,
 } from '../server/routes';
+import { JSON_SCHEMA } from 'js-yaml';
 
 export class AlertingPlugin {
   constructor(initializerContext) {
     this.logger = initializerContext.logger.get();
     this.globalConfig$ = initializerContext.config.legacy.globalConfig$;
     this.pluginConfig$ = initializerContext.config.create();
+    this.core = null;
+    this.featureFlagService = null;
   }
 
   async setup(core, { dataSource }) {
+    this.core = core;
     // Get the global configuration settings of the cluster
     const globalConfig = await this.globalConfig$.pipe(first()).toPromise();
     const pluginConfig = await this.pluginConfig$.pipe(first()).toPromise();
 
     const dataSourceEnabled = !!dataSource;
-
-    const featureFlagService = new FeatureFlagService(core, this.logger, {
-      pluginConfigPath: 'opensearch_alerting',
+    const defaultPplEnabled = Boolean(pluginConfig?.pplAlertingEnabled);
+    this.featureFlagService = new FeatureFlagService(core, this.logger, {
+      pluginConfigPath: PLUGIN_ID,
       defaults: {
-        [FEATURE_FLAGS.PPL_MONITOR]: pluginConfig.pplAlertingEnabled === true,
+        [FEATURE_FLAGS.PPL_MONITOR]: defaultPplEnabled,
       },
     });
 
@@ -64,10 +68,11 @@ export class AlertingPlugin {
     const alertService = new AlertService(alertingESClient, dataSourceEnabled);
     const opensearchService = new OpensearchService(alertingESClient, dataSourceEnabled);
     const monitorService = new MonitorService(alertingESClient, dataSourceEnabled);
-    const pplRoutesEnabled = pluginConfig.pplAlertingEnabled === true;
-    const pplMonitorService = pplRoutesEnabled
-      ? new PplAlertingMonitorService(alertingESClient, dataSourceEnabled, this.logger)
-      : null;
+    const pplMonitorService = new PplAlertingMonitorService(
+      alertingESClient,
+      dataSourceEnabled,
+      this.logger
+    );
     const destinationsService = new DestinationsService(alertingESClient, dataSourceEnabled);
     const anomalyDetectorService = new AnomalyDetectorService(adESClient, dataSourceEnabled);
     const findingService = new FindingService(alertingESClient, dataSourceEnabled);
@@ -85,7 +90,6 @@ export class AlertingPlugin {
       commentsService,
     };
 
-    const defaultPplEnabled = featureFlagService.getDefault(FEATURE_FLAGS.PPL_MONITOR);
     core.capabilities.registerProvider(() => ({
       alertingDashboards: {
         pplV2: defaultPplEnabled,
@@ -93,27 +97,71 @@ export class AlertingPlugin {
     }));
 
     core.capabilities.registerSwitcher(async (request) => {
-      const pplEnabled = await featureFlagService.isFeatureEnabled(
-        request,
-        FEATURE_FLAGS.PPL_MONITOR
-      );
-      return {
-        alertingDashboards: {
-          pplV2: pplEnabled,
-        },
-      };
+      try {
+        if (!this.featureFlagService) {
+          return {
+            alertingDashboards: {
+              pplV2: defaultPplEnabled,
+            },
+          };
+        }
+        const status = await this.featureFlagService.getFeatureStatus(request, [
+          FEATURE_FLAGS.PPL_MONITOR,
+        ]);
+        return {
+          alertingDashboards: {
+            pplV2: Boolean(status?.[FEATURE_FLAGS.PPL_MONITOR]),
+          },
+        };
+      } catch (err) {
+        this.logger?.debug?.(
+          `[Alerting][Plugin] Failed to resolve dynamic feature flags: ${err?.message ?? err}`
+        );
+        return {
+          alertingDashboards: {
+            pplV2: defaultPplEnabled,
+          },
+        };
+      }
     });
 
     // Create router
     const router = core.http.createRouter();
+    const registerPplRoutes = () => pplAlertingMonitors(services, router, dataSourceEnabled);
+
+    if (defaultPplEnabled) {
+      registerPplRoutes();
+    } else if (this.featureFlagService) {
+      core
+        .getStartServices()
+        .then(async () => {
+          try {
+            const config = await this.featureFlagService.getConfigFromDynamicStore();
+            if (config?.[FEATURE_FLAGS.PPL_MONITOR]) {
+              registerPplRoutes();
+            }
+          } catch (err) {
+            this.logger?.debug?.(
+              `[Alerting][Plugin] Failed to register PPL routes from dynamic config: ${
+                err?.message ?? err
+              }`
+            );
+          }
+        })
+        .catch((err) => {
+          this.logger?.debug?.(
+            `[Alerting][Plugin] Failed to resolve start services for dynamic PPL flag: ${
+              err?.message ?? err
+            }`
+          );
+        });
+    }
+
     // Add server routes
     alerts(services, router, dataSourceEnabled);
     destinations(services, router, dataSourceEnabled);
     opensearch(services, router, dataSourceEnabled);
     monitors(services, router, dataSourceEnabled);
-    if (pplRoutesEnabled) {
-      pplAlertingMonitors(services, router, dataSourceEnabled);
-    }
     detectors(services, router, dataSourceEnabled);
     findings(services, router, dataSourceEnabled);
     crossCluster(services, router, dataSourceEnabled);

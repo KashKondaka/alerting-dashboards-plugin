@@ -326,6 +326,27 @@ class PplAlertingCreateMonitor extends Component {
     }
   };
 
+  buildMonitorForTriggers = (values) => {
+    const triggers = _.cloneDeep(values.triggerDefinitions || []);
+    return {
+      name: values.name || '',
+      type: 'monitor',
+      monitor_type: values.monitor_type || MONITOR_TYPE.QUERY_LEVEL,
+      enabled: true,
+      schedule: { period: { interval: 1, unit: 'MINUTES' } },
+      inputs: [{ search: { indices: [], query: { match_all: {} } } }],
+      ui_metadata: {
+        search: { searchType: SEARCH_TYPE.QUERY },
+        triggers: {},
+      },
+      triggers,
+      ppl_monitor: {
+        query: values.pplQuery || '',
+        triggers,
+      },
+    };
+  };
+
   onSubmit = (values, formikBag) => {
     const {
       edit,
@@ -797,6 +818,9 @@ class PplAlertingCreateMonitor extends Component {
               />
             );
 
+            const monitorContextForTriggers = this.buildMonitorForTriggers(values);
+            const triggerDefinitions = monitorContextForTriggers.triggers;
+
             return (
               <Fragment>
                 <PageHeader>
@@ -833,12 +857,10 @@ class PplAlertingCreateMonitor extends Component {
                                 <ConfigureTriggersPpl
                                   triggerArrayHelpers={triggerArrayHelpers}
                                   edit={edit}
-                                  monitor={{
-                                    ppl_monitor: { triggers: values.triggerDefinitions || [] },
-                                  }}
+                                  monitor={monitorContextForTriggers}
                                   monitorValues={values}
                                   setFlyout={this.props.setFlyout}
-                                  triggers={values.triggerDefinitions || []}
+                                  triggers={triggerDefinitions}
                                   triggerValues={values}
                                   isDarkMode={isDarkMode}
                                   httpClient={httpClient}
