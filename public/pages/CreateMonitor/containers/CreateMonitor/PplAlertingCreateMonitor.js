@@ -86,13 +86,29 @@ class PplAlertingCreateMonitor extends Component {
 
     let triggerToEdit;
     if (edit && monitorToEdit) {
-      triggerToEdit = triggerToFormikPpl(_.get(monitorToEdit, 'triggers', []));
-      const monitorTriggers = _.get(monitorToEdit, 'ppl_monitor.triggers', []);
-      if (Array.isArray(monitorTriggers) && monitorTriggers.length) {
-        initialValues.triggerDefinitions = monitorTriggers.map((t) => ({
-          ...t,
-          actions: Array.isArray(t.actions) ? t.actions : [],
-        }));
+      const monitorLevelTriggers = _.get(monitorToEdit, 'ppl_monitor.triggers', []);
+      const rootLevelTriggers = _.get(monitorToEdit, 'triggers', []);
+      const rawTriggers =
+        Array.isArray(monitorLevelTriggers) && monitorLevelTriggers.length
+          ? monitorLevelTriggers
+          : Array.isArray(rootLevelTriggers)
+          ? rootLevelTriggers
+          : [];
+
+      const normalizedTriggers = rawTriggers.map((trigger) => {
+        const triggerFormik = triggerToFormikPpl(trigger);
+        if (!Array.isArray(trigger?.actions)) {
+          return triggerFormik;
+        }
+        return {
+          ...triggerFormik,
+          actions: _.cloneDeep(trigger.actions),
+        };
+      });
+
+      if (normalizedTriggers.length) {
+        initialValues.triggerDefinitions = normalizedTriggers;
+        triggerToEdit = normalizedTriggers[0];
       }
     }
 
