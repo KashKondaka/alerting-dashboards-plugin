@@ -93,7 +93,7 @@ const NUMBER_OF_RESULTS_OPERATOR_OPTIONS = [
   { value: '!=', text: 'Not equal to' },
 ];
 
-const THROTTLE_DEFAULT = { value: 10, unit: 'minutes' };
+const THROTTLE_DEFAULT = { value: '', unit: 'minutes' };
 const EXPIRES_DEFAULT = { value: 7, unit: 'days' };
 
 class DefineTriggerPpl extends Component {

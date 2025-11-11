@@ -33,7 +33,11 @@ export const triggerToFormikPpl = (trigger) => {
     expires_minutes,
   } = trigger || {};
 
-  const suppress = minutesToFormikDuration(throttle_minutes ?? throttle, 10);
+  const hasThrottle =
+    (throttle_minutes ?? throttle) !== undefined && (throttle_minutes ?? throttle) !== null;
+  const suppress = hasThrottle
+    ? minutesToFormikDuration(throttle_minutes ?? throttle, 0)
+    : { value: '', unit: 'minutes' };
   const expiresDuration = minutesToFormikDuration(expires_minutes ?? expires, 7 * 24 * 60);
 
   return {
@@ -46,7 +50,7 @@ export const triggerToFormikPpl = (trigger) => {
     num_results_condition: num_results_condition || '>=',
     num_results_value: num_results_value !== undefined ? num_results_value : 1,
     custom_condition: custom_condition || '',
-    throttle_enabled: (throttle_minutes ?? throttle) !== 0,
+    throttle_enabled: hasThrottle && (throttle_minutes ?? throttle) !== 0,
     suppress,
     expires: expiresDuration,
   };
