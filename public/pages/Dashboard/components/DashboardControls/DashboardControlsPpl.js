@@ -12,15 +12,7 @@ import {
   EuiFlexItem,
 } from '@elastic/eui';
 import { ALERT_STATE, MONITOR_TYPE } from '../../../../utils/constants';
-
-const severityOptions = [
-  { value: 'ALL', text: 'All severity levels' },
-  { value: '1', text: '1 (Highest)' },
-  { value: '2', text: '2 (High)' },
-  { value: '3', text: '3 (Medium)' },
-  { value: '4', text: '4 (Low)' },
-  { value: '5', text: '5 (Lowest)' },
-];
+import { PPL_SEVERITY_FILTER_OPTIONS } from '../../utils/pplSeverityUtils';
 
 const stateOptions = [
   { value: 'ALL', text: 'All alerts' },
@@ -32,8 +24,8 @@ const DashboardControlsPpl = ({
   activePage,
   pageCount,
   search,
-  severity = severityOptions[0],
-  state = stateOptions[0],
+  severity = 'ALL',
+  state = 'ALL',
   onSearchChange,
   onSeverityChange,
   onStateChange,
@@ -69,7 +61,7 @@ const DashboardControlsPpl = ({
       {isAlertsFlyout ? null : (
         <EuiFlexItem grow={false}>
           <EuiCompressedSelect
-            options={severityOptions}
+            options={PPL_SEVERITY_FILTER_OPTIONS}
             value={severity}
             onChange={onSeverityChange}
           />

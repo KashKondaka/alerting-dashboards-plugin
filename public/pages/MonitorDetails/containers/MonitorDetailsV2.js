@@ -468,6 +468,19 @@ export default class MonitorDetailsV2 extends Component {
     return { ...formikToMonitor(monitorValues), triggers };
   };
 
+  handleAlertsTotals = ({ totalAlerts } = {}) => {
+    const parsed =
+      typeof totalAlerts === 'number'
+        ? totalAlerts
+        : Number.isFinite(Number(totalAlerts))
+        ? Number(totalAlerts)
+        : NaN;
+    const normalized = Number.isFinite(parsed) ? parsed : 0;
+    if (normalized !== this.state.activeCount) {
+      this.setState({ activeCount: normalized });
+    }
+  };
+
   onDeleteClick = () => {
     this.setState({ showDeleteModal: true });
   };
@@ -510,6 +523,7 @@ export default class MonitorDetailsV2 extends Component {
         perAlertView={true}
         groupBy={groupBy}
         setFlyout={setFlyout}
+        onTotalsChange={this.handleAlertsTotals}
       />
     );
   };

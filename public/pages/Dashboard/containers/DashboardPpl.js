@@ -36,6 +36,7 @@ import {
 } from '../utils/helpersPpl';
 import { DEFAULT_PAGE_SIZE_OPTIONS } from '../../Monitors/containers/Monitors/utils/constants';
 import { MAX_ALERT_COUNT } from '../utils/constants';
+import { normalizePPLSeverity } from '../utils/pplSeverityUtils';
 import AcknowledgeAlertsModal from '../components/AcknowledgeAlertsModal';
 import { getAlertsFindingColumn } from '../components/FindingsDashboard/findingsUtils';
 import { CLUSTER_METRICS_CROSS_CLUSTER_ALERT_TABLE_COLUMN } from '../../CreateMonitor/components/ClusterMetricsMonitor/utils/clusterMetricsMonitorConstants';
@@ -112,7 +113,20 @@ export default class DashboardPpl extends Component {
     monitorIds: [],
     detectorIds: [],
     initialViewMode: 'new',
+    onTotalsChange: undefined,
   };
+  notifyTotalsChange(totalAlerts) {
+    if (typeof this.props.onTotalsChange === 'function') {
+      const numeric =
+        typeof totalAlerts === 'number'
+          ? totalAlerts
+          : Number.isFinite(Number(totalAlerts))
+          ? Number(totalAlerts)
+          : NaN;
+      const normalizedTotal = Number.isFinite(numeric) ? numeric : 0;
+      this.props.onTotalsChange({ totalAlerts: normalizedTotal });
+    }
+  }
 
   componentDidMount() {
     const { alertState, page, search, severityLevel, size, sortDirection, sortField, monitorIds } =
@@ -203,7 +217,14 @@ export default class DashboardPpl extends Component {
       const { viewMode, pplEnabled } = this.state;
       const usePplEndpoints = pplEnabled && viewMode !== 'classic';
       const apiPath = usePplEndpoints ? '/api/alerting/v2/monitors/alerts' : '/api/alerting/alerts';
-      const apiParams = { query: { ...params } };
+      const apiQuery = { ...params };
+      if (usePplEndpoints) {
+        delete apiQuery.monitorType;
+        delete apiQuery.severityLevel;
+        delete apiQuery.alertState;
+        delete apiQuery.search;
+      }
+      const apiParams = { query: apiQuery };
 
       httpClient.get(apiPath, apiParams).then((resp) => {
         if (!resp.ok) {
@@ -215,6 +236,7 @@ export default class DashboardPpl extends Component {
         if (!usePplEndpoints) {
           const { alerts, totalAlerts } = resp;
           this.setState({ alerts, totalAlerts });
+          this.notifyTotalsChange(totalAlerts);
 
           if (!perAlertView) {
             const alertsByTriggers = groupAlertsByTrigger(alerts, false);
@@ -257,17 +279,36 @@ export default class DashboardPpl extends Component {
         const q = String(search || '')
           .trim()
           .toLowerCase();
-        const matchesSearch = (a) => !q || JSON.stringify(a).toLowerCase().includes(q);
-        const matchesSeverity =
-          !severityLevel || severityLevel === 'ALL'
-            ? () => true
-            : (a) =>
-                String(a.severity).toLowerCase() === String(severityLevel).toLowerCase() ||
-                Number(a.severity) === Number(severityLevel);
-        const matchesState =
-          !alertState || alertState === 'ALL'
-            ? () => true
-            : (a) => String(a.state).toLowerCase() === String(alertState).toLowerCase();
+        const matchesSearch = (a) => {
+          if (!q) return true;
+          const triggerName = a.trigger_name || a.trigger_v2_name || a.triggerName || '';
+          const normalizedTrigger = String(triggerName).trim().toLowerCase();
+          return normalizedTrigger.startsWith(q);
+        };
+
+        const normalizedSeverityFilter =
+          severityLevel && severityLevel !== 'ALL'
+            ? normalizePPLSeverity(severityLevel)
+            : undefined;
+
+        const matchesSeverity = normalizedSeverityFilter
+          ? (a) => {
+              const rawSeverity = a.severity ?? a.severity_level ?? a.alertSeverity;
+              const normalized = normalizePPLSeverity(rawSeverity);
+              return normalized === normalizedSeverityFilter;
+            }
+          : () => true;
+
+        const normalizedStateFilter =
+          alertState && alertState !== 'ALL' ? String(alertState).toLowerCase() : undefined;
+
+        const matchesState = normalizedStateFilter
+          ? (a) => {
+              const rawState = a.state ?? a.alert_state ?? a.alertState;
+              if (rawState === undefined || rawState === null) return false;
+              return String(rawState).toLowerCase() === normalizedStateFilter;
+            }
+          : () => true;
 
         let filtered = rawAlerts.filter(
           (a) => matchesSearch(a) && matchesSeverity(a) && matchesState(a)
@@ -293,6 +334,7 @@ export default class DashboardPpl extends Component {
         const paged = filtered.slice(from, from + size);
 
         this.setState({ alerts: perAlertView ? paged : filtered, totalAlerts });
+        this.notifyTotalsChange(totalAlerts);
 
         if (!perAlertView) {
           const alertsByTriggers = groupAlertsByTrigger(filtered, true).map((row) => {
@@ -648,22 +690,19 @@ export default class DashboardPpl extends Component {
       },
     };
 
-    const selection = {
-      onSelectionChange: this.onSelectionChange,
-      selectable:
-        viewMode === 'classic'
-          ? perAlertView
+    const isClassicView = viewMode === 'classic';
+    const selection = isClassicView
+      ? {
+          onSelectionChange: this.onSelectionChange,
+          selectable: perAlertView
             ? (item) => item.state === ALERT_STATE.ACTIVE
-            : (item) => item.ACTIVE > 0
-          : () => false,
-      selectableMessage:
-        viewMode === 'classic'
-          ? perAlertView
+            : (item) => item.ACTIVE > 0,
+          selectableMessage: perAlertView
             ? (selectable) => (selectable ? undefined : 'Only active alerts can be acknowledged.')
             : (selectable) =>
-                selectable ? undefined : 'Only triggers with active alerts can be acknowledged.'
-          : undefined,
-    };
+                selectable ? undefined : 'Only triggers with active alerts can be acknowledged.',
+        }
+      : undefined;
 
     const actions = () => {
       const actions = [];
@@ -809,7 +848,7 @@ export default class DashboardPpl extends Component {
               columns={columns}
               pagination={perAlertView ? pagination : undefined}
               sorting={sorting}
-              isSelectable={true}
+              isSelectable={isClassicView}
               selection={selection}
               onChange={this.onTableChange}
               noItemsMessage={

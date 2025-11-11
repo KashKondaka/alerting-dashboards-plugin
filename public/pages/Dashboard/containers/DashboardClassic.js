@@ -86,7 +86,21 @@ export default class DashboardClassic extends Component {
   static defaultProps = {
     monitorIds: [],
     detectorIds: [],
+    onTotalsChange: undefined,
   };
+
+  notifyTotalsChange(totalAlerts) {
+    if (typeof this.props.onTotalsChange === 'function') {
+      const numeric =
+        typeof totalAlerts === 'number'
+          ? totalAlerts
+          : Number.isFinite(Number(totalAlerts))
+          ? Number(totalAlerts)
+          : NaN;
+      const normalizedTotal = Number.isFinite(numeric) ? numeric : 0;
+      this.props.onTotalsChange({ totalAlerts: normalizedTotal });
+    }
+  }
 
   componentDidMount() {
     const { alertState, page, search, severityLevel, size, sortDirection, sortField, monitorIds } =
@@ -170,6 +184,7 @@ export default class DashboardClassic extends Component {
         if (resp.ok) {
           const { alerts, totalAlerts } = resp;
           this.setState({ alerts, totalAlerts });
+          this.notifyTotalsChange(totalAlerts);
 
           if (!perAlertView) {
             const alertsByTriggers = groupAlertsByTrigger(alerts);
