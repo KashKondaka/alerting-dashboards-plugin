@@ -269,7 +269,7 @@ class ConfigureActionsPpl extends React.Component {
     };
 
     try {
-      const response = await httpClient.post('../api/alerting/monitors/_execute', {
+      const response = await httpClient.post('/api/alerting/monitors/_execute', {
         query: { dryrun: false, dataSourceId: getDataSourceId() },
         body: JSON.stringify(testMonitor),
       });
