@@ -931,7 +931,7 @@ export class CreateMonitorFlyout extends Component<FlyoutComponentProps, CreateM
             initialValues={initialValues}
             validate={this.validateForm}
             onSubmit={this.handleSubmit}
-            validateOnChange={false}
+            validateOnChange={true}
             validateOnMount
             enableReinitialize={false}
           >

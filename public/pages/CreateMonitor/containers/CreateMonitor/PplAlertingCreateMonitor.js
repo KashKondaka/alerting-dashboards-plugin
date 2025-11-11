@@ -823,7 +823,7 @@ class PplAlertingCreateMonitor extends Component {
           innerRef={this.formikRef}
           initialValues={initialValues}
           onSubmit={this.evaluateSubmission}
-          validateOnChange={false}
+          validateOnChange={true}
           enableReinitialize={false}
         >
           {({ values, errors, handleSubmit, isSubmitting, isValid, touched, setFieldValue }) => {
