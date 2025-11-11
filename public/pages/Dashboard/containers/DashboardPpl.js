@@ -377,13 +377,17 @@ export default class DashboardPpl extends Component {
       const usePplEndpoints = pplEnabled && viewMode !== 'classic';
 
       if (!usePplEndpoints) {
-        const query = {
-          monitorIds: monitorIds.join(','),
+        const body = {
+          query: { ids: { values: monitorIds } },
+          version: true,
+          seq_no_primary_term: true,
           size: monitorIds.length || 1000,
-          from: 0,
-          ...(this.dataSourceQuery?.query || {}),
         };
-        const response = await httpClient.get('../api/alerting/monitors', { query });
+
+        const response = await httpClient.post('../api/alerting/monitors/_search', {
+          body: JSON.stringify(body),
+          query: this.dataSourceQuery?.query,
+        });
 
         if (!response.ok) {
           console.log('error getting monitors:', response);
@@ -391,13 +395,13 @@ export default class DashboardPpl extends Component {
           return;
         }
 
-        const normalizedHits = (response.monitors || []).map((mon) => ({
-          _id: mon.id,
-          _version: mon.version,
-          _seq_no: mon.ifSeqNo,
-          _primary_term: mon.ifPrimaryTerm,
-          _source: mon.monitor || {},
-        }));
+        const normalizedHits = _.get(response, 'resp.hits.hits', []).map((hit) => {
+          const monitorSource = hit?._source?.monitor ? hit._source.monitor : hit?._source || {};
+          return {
+            ...hit,
+            _source: monitorSource,
+          };
+        });
 
         const monitorsById = normalizedHits.reduce((acc, h) => {
           acc[h._id] = h._source || {};
@@ -781,6 +785,8 @@ export default class DashboardPpl extends Component {
         ]
       : [{ id: 'classic', label: 'Classic' }];
 
+    const showInlineActions = useUpdatedUx && viewMode !== 'classic';
+
     return (
       <>
         <ContentPanel
@@ -841,7 +847,7 @@ export default class DashboardPpl extends Component {
             onPageChange={this.onPageClick}
             isAlertsFlyout={isAlertsFlyout}
             monitorType={monitorType}
-            alertActions={useUpdatedUx ? actions() : undefined}
+            alertActions={showInlineActions ? actions() : undefined}
             panelStyles={{ padding: perAlertView ? '8px 16px 16px' : '0px 16px 16px' }}
           />
 
