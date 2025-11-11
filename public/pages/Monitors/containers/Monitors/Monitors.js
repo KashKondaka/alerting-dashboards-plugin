@@ -809,6 +809,7 @@ export default class Monitors extends Component {
                   filterIsApplied={filterIsApplied}
                   loading={loadingMonitors}
                   resetFilters={this.resetFilters}
+                  viewMode={viewMode}
                 />
               }
               onChange={this.onTableChange}
