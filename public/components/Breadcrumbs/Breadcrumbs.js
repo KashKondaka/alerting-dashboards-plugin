@@ -115,7 +115,7 @@ const fetchMonitorName = async (id, legacyResource, dataSourceQueryObj, httpClie
   const pplEnabled = isPplAlertingEnabled();
   const shouldTryV2 = pplEnabled && shouldPreferV2ViewMode();
 
-  if (shouldTryV2) {
+  if (shouldTryV2 && legacyResource !== 'workflows') {
     try {
       const v2Resp = await httpClient.get(
         `../api/alerting/v2/monitors/${encodeURIComponent(id)}`,

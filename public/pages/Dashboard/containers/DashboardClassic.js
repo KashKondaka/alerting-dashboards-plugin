@@ -367,6 +367,7 @@ export default class DashboardClassic extends Component {
         payload: {
           ...payload,
           dataSourceId,
+          viewMode: 'classic',
           openChainedAlertsFlyout: this.openChainedAlertsFlyout,
           closeFlyout: this.closeFlyout,
         },

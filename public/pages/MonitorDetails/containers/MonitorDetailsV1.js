@@ -364,6 +364,7 @@ export default class MonitorDetailsV1 extends Component {
         monitorIds={[monitorId]}
         detectorIds={detectorId ? [detectorId] : []}
         onCreateTrigger={editMonitor}
+        initialViewMode="classic"
         httpClient={httpClient}
         location={location}
         history={history}
