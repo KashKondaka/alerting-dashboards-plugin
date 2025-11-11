@@ -164,6 +164,7 @@ export const alertColumnsPpl = (
             isAgentConfigured={isAgentConfigured}
             alertId={alertId}
             datasourceId={datasourceId}
+            viewMode={viewMode}
           >
             {component}
           </AlertInsight>

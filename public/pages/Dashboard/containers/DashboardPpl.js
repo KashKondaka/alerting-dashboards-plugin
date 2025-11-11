@@ -13,9 +13,9 @@ import {
   EuiFlexItem,
   EuiPagination,
   EuiFlexGroup,
-  EuiButtonGroup,
   EuiSpacer,
   EuiTitle,
+  EuiButtonGroup,
 } from '@elastic/eui';
 import ContentPanel from '../../../components/ContentPanel';
 import DashboardEmptyPrompt from '../components/DashboardEmptyPrompt';
@@ -47,42 +47,26 @@ import {
   appendCommentsAction,
   getIsCommentsEnabled,
   getIsAgentConfigured,
+  dataSourceEnabled,
 } from '../../utils/helpers';
 import { getUseUpdatedUx, isPplAlertingEnabled } from '../../../services';
-
-const DASHBOARD_VIEW_MODE_STORAGE_KEY = 'alerting_dashboard_view_mode';
 
 export default class DashboardPpl extends Component {
   constructor(props) {
     super(props);
 
-    const { location, perAlertView, initialViewMode } = props;
+    const { location, perAlertView } = props;
+    console.log('[DashboardPpl] constructor', {
+      monitorIds: props.monitorIds,
+      perAlertView,
+      landingDataSourceId: props.landingDataSourceId,
+    });
     const { alertState, from, search, severityLevel, size, sortDirection, sortField } =
       getURLQueryParams(location);
 
     const pplEnabled = isPplAlertingEnabled();
-    let resolvedViewMode = initialViewMode || 'new';
-    if (pplEnabled) {
-      if (!initialViewMode) {
-        try {
-          const stored = localStorage.getItem(DASHBOARD_VIEW_MODE_STORAGE_KEY);
-          if (stored === 'classic' || stored === 'new') {
-            resolvedViewMode = stored;
-          }
-        } catch (e) {
-          // ignore storage errors
-        }
-      }
-    } else {
-      resolvedViewMode = 'classic';
-      try {
-        localStorage.setItem(DASHBOARD_VIEW_MODE_STORAGE_KEY, 'classic');
-      } catch (e) {
-        // ignore storage errors
-      }
-    }
 
-    this.dataSourceQuery = getDataSourceQueryObj();
+    this.dataSourceQuery = getDataSourceQueryObj(this.props.landingDataSourceId);
     this.state = {
       alerts: [],
       alertsByTriggers: [],
@@ -104,7 +88,6 @@ export default class DashboardPpl extends Component {
       totalTriggers: 0,
       commentsEnabled: false,
       isAgentConfigured: false,
-      viewMode: resolvedViewMode,
       pplEnabled,
     };
   }
@@ -112,7 +95,6 @@ export default class DashboardPpl extends Component {
   static defaultProps = {
     monitorIds: [],
     detectorIds: [],
-    initialViewMode: 'new',
     onTotalsChange: undefined,
   };
   notifyTotalsChange(totalAlerts) {
@@ -129,6 +111,7 @@ export default class DashboardPpl extends Component {
   }
 
   componentDidMount() {
+    console.log('[DashboardPpl] componentDidMount');
     const { alertState, page, search, severityLevel, size, sortDirection, sortField, monitorIds } =
       this.state;
     this.getAlerts(
@@ -155,25 +138,21 @@ export default class DashboardPpl extends Component {
       this.getUpdatedAlerts();
     }
     if (isDataSourceChanged(prevProps, this.props)) {
-      this.dataSourceQuery = getDataSourceQueryObj();
+      this.dataSourceQuery = getDataSourceQueryObj(this.props.landingDataSourceId);
       this.getUpdatedAgentConfig();
-      this.getUpdatedAlerts();
-    }
-
-    if (prevState.viewMode !== this.state.viewMode) {
-      if (this.state.pplEnabled) {
-        try {
-          localStorage.setItem(DASHBOARD_VIEW_MODE_STORAGE_KEY, this.state.viewMode || 'new');
-        } catch (e) {
-          // ignore storage errors
-        }
-      }
       this.getUpdatedAlerts();
     }
   }
 
   getUpdatedAgentConfig() {
-    const dataSourceId = getDataSourceId();
+    const dataSourceId =
+      _.get(this.dataSourceQuery, 'query.dataSourceId') ??
+      getDataSourceId(this.props.landingDataSourceId);
+
+    if (dataSourceEnabled() && dataSourceId === undefined) {
+      return;
+    }
+
     getIsAgentConfigured(dataSourceId).then((isAgentConfigured) => {
       this.setState({ isAgentConfigured });
     });
@@ -196,7 +175,18 @@ export default class DashboardPpl extends Component {
 
   getAlerts = _.debounce(
     (from, size, search, sortField, sortDirection, severityLevel, alertState, monitorIds) => {
-      const dataSourceId = getDataSourceId();
+      const storedDataSourceId = _.get(this.dataSourceQuery, 'query.dataSourceId');
+      const resolvedDataSourceId =
+        storedDataSourceId ?? getDataSourceId(this.props.landingDataSourceId);
+
+      if (dataSourceEnabled() && resolvedDataSourceId === undefined) {
+        return;
+      }
+
+      if (resolvedDataSourceId !== undefined && !storedDataSourceId) {
+        this.dataSourceQuery = { query: { dataSourceId: resolvedDataSourceId } };
+      }
+
       const params = {
         from,
         size,
@@ -207,47 +197,37 @@ export default class DashboardPpl extends Component {
         alertState,
         monitorIds,
         monitorType: this.props.monitorType,
-        dataSourceId,
       };
+      console.log('[DashboardPpl] getAlerts request', {
+        params,
+        resolvedDataSourceId,
+        apiPath: '/api/alerting/v2/monitors/alerts',
+      });
+
+      if (resolvedDataSourceId !== undefined) {
+        params.dataSourceId = resolvedDataSourceId;
+      }
 
       const queryParamsString = queryString.stringify(params);
       const { httpClient, history, notifications, perAlertView } = this.props;
       history.replace({ ...this.props.location, search: queryParamsString });
 
-      const { viewMode, pplEnabled } = this.state;
-      const usePplEndpoints = pplEnabled && viewMode !== 'classic';
-      const apiPath = usePplEndpoints ? '/api/alerting/v2/monitors/alerts' : '/api/alerting/alerts';
+      const apiPath = '/api/alerting/v2/monitors/alerts';
       const apiQuery = { ...params };
-      if (usePplEndpoints) {
-        delete apiQuery.monitorType;
-        delete apiQuery.severityLevel;
-        delete apiQuery.alertState;
-        delete apiQuery.search;
-      }
+      delete apiQuery.monitorType;
+      delete apiQuery.severityLevel;
+      delete apiQuery.alertState;
+      delete apiQuery.search;
       const apiParams = { query: apiQuery };
 
       httpClient.get(apiPath, apiParams).then((resp) => {
+        console.log('[DashboardPpl] getAlerts response', {
+          ok: resp?.ok,
+          totalAlerts: resp?.resp?.total_alerts_v2 ?? resp?.totalAlerts,
+        });
         if (!resp.ok) {
           console.log('error getting alerts:', resp);
           backendErrorNotification(notifications, 'get', 'alerts', resp.err);
-          return;
-        }
-
-        if (!usePplEndpoints) {
-          const { alerts, totalAlerts } = resp;
-          this.setState({ alerts, totalAlerts });
-          this.notifyTotalsChange(totalAlerts);
-
-          if (!perAlertView) {
-            const alertsByTriggers = groupAlertsByTrigger(alerts, false);
-            this.setState(
-              {
-                totalTriggers: alertsByTriggers.length,
-                alertsByTriggers,
-              },
-              () => this.getMonitors()
-            );
-          }
           return;
         }
 
@@ -361,7 +341,7 @@ export default class DashboardPpl extends Component {
 
   async getMonitors() {
     const { httpClient } = this.props;
-    const { alertsByTriggers, viewMode, pplEnabled } = this.state;
+    const { alertsByTriggers } = this.state;
     this.setState({ loadingMonitors: true });
 
     const monitorIds = Array.from(
@@ -374,64 +354,33 @@ export default class DashboardPpl extends Component {
     }
 
     try {
-      const usePplEndpoints = pplEnabled && viewMode !== 'classic';
+      const body = {
+        size: monitorIds.length || 1000,
+        query: {
+          ids: {
+            values: monitorIds,
+          },
+        },
+      };
 
-      if (!usePplEndpoints) {
-        const body = {
-          query: { ids: { values: monitorIds } },
-          version: true,
-          seq_no_primary_term: true,
-          size: monitorIds.length || 1000,
-        };
+      const latestDataSourceQuery = getDataSourceQueryObj(this.props.landingDataSourceId);
+      if (latestDataSourceQuery) {
+        this.dataSourceQuery = latestDataSourceQuery;
+      }
+      const query = (latestDataSourceQuery || this.dataSourceQuery)?.query;
+      console.log('[DashboardPpl] getMonitors request', {
+        monitorIds,
+        query,
+      });
 
-        const response = await httpClient.post('../api/alerting/monitors/_search', {
-          body: JSON.stringify(body),
-          query: this.dataSourceQuery?.query,
-        });
-
-        if (!response.ok) {
-          console.log('error getting monitors:', response);
-          this.setState({ loadingMonitors: false });
-          return;
-        }
-
-        const normalizedHits = _.get(response, 'resp.hits.hits', []).map((hit) => {
-          const monitorSource = hit?._source?.monitor ? hit._source.monitor : hit?._source || {};
-          return {
-            ...hit,
-            _source: monitorSource,
-          };
-        });
-
-        const monitorsById = normalizedHits.reduce((acc, h) => {
-          acc[h._id] = h._source || {};
-          return acc;
-        }, {});
-
-        const enrichedAlertsByTriggers = this.state.alertsByTriggers.map((row) => ({
-          ...row,
-          monitor_name: monitorsById[row.monitor_id]?.name || row.monitor_id,
-        }));
-
-        this.setState({
-          loadingMonitors: false,
-          monitors: normalizedHits,
-          monitorsById,
-          alertsByTriggers: enrichedAlertsByTriggers,
-        });
+      if (dataSourceEnabled() && !_.get(query, 'dataSourceId')) {
+        this.setState({ loadingMonitors: false });
         return;
       }
 
-      const body = {
-        query: { ids: { values: monitorIds } },
-        version: true,
-        seq_no_primary_term: true,
-        size: monitorIds.length || 1000,
-      };
-
       const response = await httpClient.post('../api/alerting/v2/monitors/_search', {
         body: JSON.stringify(body),
-        query: this.dataSourceQuery?.query,
+        query,
       });
 
       if (!response.ok) {
@@ -443,6 +392,9 @@ export default class DashboardPpl extends Component {
       const normalizedHits = _.get(response, 'resp.hits.hits', []).map((hit) => {
         const monitorObj = hit._source?.monitor ? hit._source.monitor : hit._source || {};
         return { ...hit, _source: monitorObj };
+      });
+      console.log('[DashboardPpl] getMonitors response', {
+        count: normalizedHits.length,
       });
 
       const monitorsById = normalizedHits.reduce((acc, h) => {
@@ -528,13 +480,15 @@ export default class DashboardPpl extends Component {
     if (!_.isEmpty(payload)) {
       const dataSourceId =
         _.get(this.dataSourceQuery, 'query.dataSourceId') ??
-        (typeof getDataSourceId === 'function' ? getDataSourceId() : undefined);
+        (typeof getDataSourceId === 'function'
+          ? getDataSourceId(this.props.landingDataSourceId)
+          : undefined);
 
       this.props.setFlyout({
         type: 'alertsDashboard',
         payload: {
           ...payload,
-          viewMode: this.state.viewMode,
+          viewMode: 'new',
           closeFlyout: this.closeFlyout,
           dataSourceId,
         },
@@ -614,7 +568,6 @@ export default class DashboardPpl extends Component {
       totalTriggers,
       commentsEnabled,
       isAgentConfigured,
-      viewMode,
       pplEnabled,
     } = this.state;
     const {
@@ -630,6 +583,10 @@ export default class DashboardPpl extends Component {
       history,
       notifications,
       isAlertsFlyout = false,
+      viewMode = 'new',
+      showToggle = false,
+      toggleOptions = [],
+      onViewModeChange,
     } = this.props;
     const totalItems = perAlertView ? totalAlerts : totalTriggers;
     const isBucketMonitor = monitorType === MONITOR_TYPE.BUCKET_LEVEL;
@@ -681,7 +638,7 @@ export default class DashboardPpl extends Component {
         this.openFlyout,
         this.closeFlyout,
         this.refreshDashboard,
-        viewMode
+        'new'
       );
     }
 
@@ -699,61 +656,10 @@ export default class DashboardPpl extends Component {
       },
     };
 
-    const isClassicView = viewMode === 'classic';
-    const selection = isClassicView
-      ? {
-          onSelectionChange: this.onSelectionChange,
-          selectable: perAlertView
-            ? (item) => item.state === ALERT_STATE.ACTIVE
-            : (item) => item.ACTIVE > 0,
-          selectableMessage: perAlertView
-            ? (selectable) => (selectable ? undefined : 'Only active alerts can be acknowledged.')
-            : (selectable) =>
-                selectable ? undefined : 'Only triggers with active alerts can be acknowledged.',
-        }
-      : undefined;
+    const selection = undefined;
 
     const actions = () => {
       const actions = [];
-
-      const isClassicView = viewMode === 'classic' || !pplEnabled;
-      if (!perAlertView && isClassicView) {
-        const alert = selectedItems[0];
-        actions.unshift(
-          <EuiSmallButton
-            onClick={() => {
-              this.openFlyout({
-                ...alert,
-                history,
-                httpClient,
-                loadingMonitors,
-                location,
-                monitors,
-                notifications,
-                setFlyout,
-                closeFlyout: this.closeFlyout,
-                refreshDashboard: this.refreshDashboard,
-              });
-            }}
-            disabled={selectedItems.length !== 1}
-          >
-            View alert details
-          </EuiSmallButton>
-        );
-      }
-
-      if (viewMode === 'classic') {
-        actions.push(
-          <EuiSmallButton
-            onClick={perAlertView ? this.acknowledgeAlert : this.openModal}
-            disabled={perAlertView ? !selectedItems.length : selectedItems.length !== 1}
-            data-test-subj={'acknowledgeAlertsButton'}
-          >
-            Acknowledge
-          </EuiSmallButton>
-        );
-      }
-
       if (detectorIds.length) {
         actions.unshift(
           <EuiSmallButton
@@ -777,59 +683,44 @@ export default class DashboardPpl extends Component {
 
     const useUpdatedUx = !perAlertView && pplEnabled && getUseUpdatedUx();
     const shouldShowPagination = !perAlertView && totalAlerts > 0;
-
-    const toggleButtons = pplEnabled
-      ? [
-          { id: 'new', label: 'New' },
-          { id: 'classic', label: 'Classic' },
-        ]
-      : [{ id: 'classic', label: 'Classic' }];
-
-    const showInlineActions = useUpdatedUx && viewMode !== 'classic';
+    const showInlineActions = useUpdatedUx;
 
     return (
       <>
         <ContentPanel
-          title={perAlertView ? 'Alerts' : useUpdatedUx ? undefined : 'Alerts by triggers'}
+          title={perAlertView ? 'Alerts' : undefined}
           titleSize={'s'}
           bodyStyles={{ padding: 'initial' }}
           actions={useUpdatedUx ? undefined : actions()}
           panelOptions={{ hideTitleBorder: useUpdatedUx }}
           panelStyles={{ padding: useUpdatedUx ? '0px' : '16px' }}
         >
-          {useUpdatedUx && (
+          {!perAlertView && (
             <>
-              <div style={{ padding: '16px 16px 0px 16px' }}>
-                <EuiFlexGroup alignItems="center" justifyContent="spaceBetween" responsive={false}>
+              <div style={{ padding: useUpdatedUx ? '16px 16px 0px 16px' : '0px 0px 16px' }}>
+                <EuiFlexGroup
+                  alignItems="center"
+                  justifyContent="flexStart"
+                  gutterSize="s"
+                  responsive={false}
+                >
                   <EuiFlexItem grow={false}>
-                    <EuiFlexGroup alignItems="center" gutterSize="m" responsive={false}>
-                      <EuiFlexItem grow={false}>
-                        <EuiTitle size="l">
-                          <h1>Alerts by triggers</h1>
-                        </EuiTitle>
-                      </EuiFlexItem>
-                      <EuiFlexItem grow={false}>
-                        <EuiButtonGroup
-                          legend="Alert view toggle"
-                          options={toggleButtons}
-                          idSelected={viewMode}
-                          onChange={(id) => this.setState({ viewMode: id })}
-                          buttonSize="compressed"
-                          color="text"
-                          isFullWidth={false}
-                        />
-                      </EuiFlexItem>
-                    </EuiFlexGroup>
+                    <EuiTitle size="l">
+                      <h1>Alerts by triggers</h1>
+                    </EuiTitle>
                   </EuiFlexItem>
-                  <EuiFlexItem grow={false}>
-                    <EuiFlexGroup gutterSize="s" responsive={false}>
-                      {actions().map((action, idx) => (
-                        <EuiFlexItem key={idx} grow={false}>
-                          {action}
-                        </EuiFlexItem>
-                      ))}
-                    </EuiFlexGroup>
-                  </EuiFlexItem>
+                  {showToggle && (
+                    <EuiFlexItem grow={false}>
+                      <EuiButtonGroup
+                        legend="Alert dashboard view"
+                        options={toggleOptions}
+                        idSelected={viewMode}
+                        onChange={onViewModeChange}
+                        buttonSize="compressed"
+                        color="text"
+                      />
+                    </EuiFlexItem>
+                  )}
                 </EuiFlexGroup>
               </div>
               <EuiSpacer size="m" />
@@ -848,7 +739,15 @@ export default class DashboardPpl extends Component {
             isAlertsFlyout={isAlertsFlyout}
             monitorType={monitorType}
             alertActions={showInlineActions ? actions() : undefined}
-            panelStyles={{ padding: perAlertView ? '8px 16px 16px' : '0px 16px 16px' }}
+            panelStyles={{
+              padding: perAlertView
+                ? useUpdatedUx
+                  ? '8px 16px 16px'
+                  : '8px 0px 16px'
+                : useUpdatedUx
+                ? '0px 16px 16px'
+                : '0px 0px 16px',
+            }}
           />
 
           {this.state.showAlertsModal && this.renderModal()}
@@ -860,7 +759,7 @@ export default class DashboardPpl extends Component {
               columns={columns}
               pagination={perAlertView ? pagination : undefined}
               sorting={sorting}
-              isSelectable={isClassicView}
+              isSelectable={false}
               selection={selection}
               onChange={this.onTableChange}
               noItemsMessage={

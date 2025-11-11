@@ -131,6 +131,11 @@ export default class MonitorDetailsV2 extends Component {
     if (this.context?.dataSourceId) {
       setDataSource({ dataSourceId: this.context.dataSourceId });
     }
+    console.log('[MonitorDetailsV2] componentDidMount', {
+      monitorId: this.props.match.params.monitorId,
+      viewMode: this.props.viewMode,
+      locationSearch: this.props.location?.search,
+    });
     this.getMonitor(this.props.match.params.monitorId);
     const dataSourceQuery = getDataSourceQueryObj();
     this.getLocalClusterName(dataSourceQuery);
@@ -208,10 +213,22 @@ export default class MonitorDetailsV2 extends Component {
     const encodedId = encodeURIComponent(id);
 
     if (viewMode === 'new') {
+      console.log('[MonitorDetailsV2] getMonitorFromApi -> v2 endpoint', {
+        id,
+        encodedId,
+        dataSourceQuery,
+      });
       return httpClient.get(`../api/alerting/v2/monitors/${encodedId}`, dataSourceQuery);
     }
 
     const resource = treatAsWorkflow ? 'workflows' : 'monitors';
+    console.log('[MonitorDetailsV2] getMonitorFromApi -> v1 fallback endpoint', {
+      id,
+      encodedId,
+      resource,
+      treatAsWorkflow,
+      dataSourceQuery,
+    });
     return httpClient.get(`../api/alerting/${resource}/${encodedId}`, dataSourceQuery);
   };
 
@@ -220,6 +237,13 @@ export default class MonitorDetailsV2 extends Component {
       try {
         const isWorkflow = this.isWorkflow();
         const resp = await this.getMonitorFromApi(id, { treatAsWorkflow: isWorkflow });
+        console.log('[MonitorDetailsV2] getMonitor response', {
+          id,
+          isWorkflow,
+          ok: resp?.ok,
+          hasResp: Boolean(resp?.resp),
+          version: resp?.version,
+        });
 
         if (resp?.ok) {
           const {
@@ -276,10 +300,12 @@ export default class MonitorDetailsV2 extends Component {
         }
       } catch (err) {
         console.log('err', err);
+        console.log('[MonitorDetailsV2] getMonitor error', err);
         this.props.history.push('/monitors');
       }
     };
 
+    console.log('[MonitorDetailsV2] getMonitor:start', { id });
     fetchMonitor();
   };
 
@@ -493,6 +519,10 @@ export default class MonitorDetailsV2 extends Component {
       this.props.notifications,
       dataSourceQuery
     );
+    console.log('[MonitorDetailsV2] deleteMonitor', {
+      monitorId: this.state.monitor?.id,
+      response: deleteResult?.ok,
+    });
     this.props.history.push('/monitors');
   };
 
@@ -515,6 +545,7 @@ export default class MonitorDetailsV2 extends Component {
         monitorIds={[monitorId]}
         detectorIds={detectorId ? [detectorId] : []}
         onCreateTrigger={editMonitor}
+        initialViewMode="new"
         httpClient={httpClient}
         location={location}
         history={history}
