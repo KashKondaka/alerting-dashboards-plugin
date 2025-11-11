@@ -74,13 +74,13 @@ const processPPLResponseToChartData = (response: any): ChartData | null => {
         bucket.key ||
         bucket.span ||
         bucket.window ||
-        bucket.bucket;
+    bucket.bucket;
       const count = Number(
-        bucket.doc_count ??
-          bucket.count ??
-          bucket['count()'] ??
-          bucket.total ??
-          bucket.value ??
+    bucket.doc_count ??
+    bucket.count ??
+    bucket['count()'] ??
+    bucket.total ??
+    bucket.value ??
           0
       ) || 0;
 
@@ -258,53 +258,53 @@ export const PplAlertingVisualGraph: React.FC<PplAlertingVisualGraphProps> = ({
   };
 
   return (
-    <section
-      aria-label="Histogram of found documents"
-      className="alertingTimechart"
-      data-test-subj="alertingTimechart"
-    >
+        <section
+          aria-label="Histogram of found documents"
+          className="alertingTimechart"
+          data-test-subj="alertingTimechart"
+        >
       <div className="alertingHistogram" data-test-subj="alertingChart" style={{ height: '220px', width: '100%' }}>
         <Chart size={{ width: '100%', height: '100%' }} key={`chart-${thresholdNumeric}-${dataMax}`}>
           <Settings xDomain={xDomain} tooltip={{ type: TooltipType.VerticalCursor }} theme={chartsTheme} />
-          <Axis
-            id="alerting-histogram-left-axis"
-            position={Position.Left}
+              <Axis
+                id="alerting-histogram-left-axis"
+                position={Position.Left}
             title={data?.yAxisLabel ?? 'Count'}
-            ticks={yTickValues.length || 5}
+                ticks={yTickValues.length || 5}
             tickFormat={formatYValue}
-            domain={yDomain}
-            tickValues={yTickValues}
-          />
-          <Axis
-            id="alerting-histogram-bottom-axis"
-            position={Position.Bottom}
+                domain={yDomain}
+                tickValues={yTickValues}
+              />
+              <Axis
+                id="alerting-histogram-bottom-axis"
+                position={Position.Bottom}
             title={data?.xAxisLabel ?? 'Time'}
-            ticks={10}
+                ticks={10}
             tickFormat={formatXValue}
-          />
-          {hasThreshold && lineAnnotationData.length > 0 && (
-            <LineAnnotation
-              id="threshold-line"
-              domainType={AnnotationDomainType.YDomain}
-              dataValues={lineAnnotationData}
-              hideTooltips={false}
-              style={lineAnnotationStyle}
-            />
-          )}
-          <HistogramBarSeries
-            id="alerting-histogram"
-            minBarHeight={2}
-            xScaleType={ScaleType.Time}
-            yScaleType={ScaleType.Linear}
-            xAccessor="x"
-            yAccessors={['y']}
+              />
+              {hasThreshold && lineAnnotationData.length > 0 && (
+                <LineAnnotation
+                  id="threshold-line"
+                  domainType={AnnotationDomainType.YDomain}
+                  dataValues={lineAnnotationData}
+                  hideTooltips={false}
+                  style={lineAnnotationStyle}
+                />
+              )}
+              <HistogramBarSeries
+                id="alerting-histogram"
+                minBarHeight={2}
+                xScaleType={ScaleType.Time}
+                yScaleType={ScaleType.Linear}
+                xAccessor="x"
+                yAccessors={['y']}
             data={normalizedData}
-            name="Count"
+                name="Count"
             barsPadding={0.2}
-          />
-        </Chart>
-      </div>
-    </section>
+              />
+            </Chart>
+          </div>
+        </section>
   );
 };
 

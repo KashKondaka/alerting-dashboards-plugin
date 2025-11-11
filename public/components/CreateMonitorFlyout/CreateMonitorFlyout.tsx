@@ -54,13 +54,12 @@ import { QueryEditor } from '../../pages/CreateMonitor/components/QueryEditor';
 import { AlertingDataTable } from '../DataTable';
 import {
   runPPLPreview,
-  submitPPL,
   extractIndicesFromPPL,
   findCommonDateFields,
   getPlugins,
   makeAlertingV2Service,
-  buildPPLMonitorFromFormik,
-} from '../../pages/CreateMonitor/containers/CreateMonitor/utils/helpers';
+} from '../../pages/CreateMonitor/containers/CreateMonitor/utils/pplAlertingHelpers';
+import { buildPPLMonitorFromFormik } from '../../pages/CreateMonitor/containers/CreateMonitor/utils/pplFormikToMonitor';
 import { CoreContext } from '../../utils/CoreContext';
 import { getAlertingStore } from '../../redux/store';
 
