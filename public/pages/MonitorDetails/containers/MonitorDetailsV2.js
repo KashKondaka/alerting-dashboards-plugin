@@ -513,17 +513,25 @@ export default class MonitorDetailsV2 extends Component {
 
   deleteMonitor = async () => {
     const dataSourceQuery = getDataSourceQueryObj();
-    await deletePplMonitor(
-      this.state.monitor,
-      this.props.httpClient,
-      this.props.notifications,
-      dataSourceQuery
-    );
-    console.log('[MonitorDetailsV2] deleteMonitor', {
-      monitorId: this.state.monitor?.id,
-      response: deleteResult?.ok,
-    });
-    this.props.history.push('/monitors');
+    try {
+      const deleteResult = await deletePplMonitor(
+        this.state.monitor,
+        this.props.httpClient,
+        this.props.notifications,
+        dataSourceQuery
+      );
+      console.log('[MonitorDetailsV2] deleteMonitor', {
+        monitorId: this.state.monitor?.id,
+        response: deleteResult?.ok,
+      });
+      if (deleteResult?.ok) {
+        this.props.history.push('/monitors');
+      }
+      return deleteResult;
+    } catch (err) {
+      console.error('[MonitorDetailsV2] deleteMonitor error', err);
+      return err;
+    }
   };
 
   renderAlertsTable = () => {
