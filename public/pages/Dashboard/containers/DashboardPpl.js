@@ -709,24 +709,66 @@ export default class DashboardPpl extends Component {
 
       if (!perAlertView) {
         const alert = selectedItems[0];
+        const openAlertDetails = async () => {
+          if (!alert || !alert.monitor_id) return;
+
+          const usePplEndpoints = pplEnabled && viewMode !== 'classic';
+          if (!usePplEndpoints) {
+            this.openFlyout({
+              ...alert,
+              history,
+              httpClient,
+              loadingMonitors,
+              location,
+              monitors,
+              notifications,
+              setFlyout,
+              closeFlyout: this.closeFlyout,
+              refreshDashboard: this.refreshDashboard,
+            });
+            return;
+          }
+
+          try {
+            const { monitor_id, triggerID } = alert;
+            const monitorResp = await httpClient.get(
+              `../api/alerting/v2/monitors/${encodeURIComponent(monitor_id)}`,
+              this.dataSourceQuery
+            );
+            if (!monitorResp?.ok) {
+              console.log('error getting monitor details:', monitorResp);
+              backendErrorNotification(notifications, 'get', 'monitor', monitorResp?.resp);
+              return;
+            }
+
+            const monitorPayload = monitorResp.resp || {};
+            const trigger =
+              (monitorPayload.triggers || []).find((t) => t.id === triggerID) || undefined;
+            const triggerName = trigger?.name || alert.trigger_name || alert.triggerName;
+
+            this.openFlyout({
+              ...alert,
+              triggerName,
+              monitor: monitorPayload,
+              history,
+              httpClient,
+              loadingMonitors,
+              location,
+              monitors,
+              notifications,
+              setFlyout,
+              closeFlyout: this.closeFlyout,
+              refreshDashboard: this.refreshDashboard,
+              dataSourceId: this.dataSourceQuery?.query?.dataSourceId,
+            });
+          } catch (err) {
+            console.error('error retrieving monitor/trigger info', err);
+            backendErrorNotification(notifications, 'get', 'monitor', err);
+          }
+        };
+
         actions.unshift(
-          <EuiSmallButton
-            onClick={() => {
-              this.openFlyout({
-                ...alert,
-                history,
-                httpClient,
-                loadingMonitors,
-                location,
-                monitors,
-                notifications,
-                setFlyout,
-                closeFlyout: this.closeFlyout,
-                refreshDashboard: this.refreshDashboard,
-              });
-            }}
-            disabled={selectedItems.length !== 1}
-          >
+          <EuiSmallButton onClick={openAlertDetails} disabled={selectedItems.length !== 1}>
             View alert details
           </EuiSmallButton>
         );

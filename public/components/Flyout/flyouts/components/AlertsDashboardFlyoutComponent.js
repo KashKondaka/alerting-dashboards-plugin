@@ -20,6 +20,7 @@ import {
   EuiText,
   EuiToolTip,
   EuiSmallButtonIcon,
+  EuiCompressedSelect,
 } from '@elastic/eui';
 import { getTime } from '../../../../pages/MonitorDetails/components/MonitorOverview/utils/getOverviewStats';
 import {
@@ -69,6 +70,7 @@ import {
   PplPreviewTable,
   pplRespToDocs,
 } from '../../../../pages/CreateMonitor/components/PplPreviewTable/PplPreviewTable';
+import { PPL_SEVERITY_FILTER_OPTIONS } from '../../../../pages/Dashboard/utils/pplSeverityUtils';
 
 export const DEFAULT_NUM_FLYOUT_ROWS = 5;
 
@@ -247,35 +249,36 @@ export default class AlertsDashboardFlyoutComponent extends Component {
 
     if (viewMode === 'new') {
       // For v2/new mode, call the v2 API and filter by trigger_v2_id
-      httpClient
-        .get('/api/alerting/v2/monitors/alerts', { query: extendedParams })
-        ?.then((resp) => {
-          if (!this._isMounted) {
-            return;
+      const pplQuery = { ...extendedParams };
+      delete pplQuery.monitorType;
+
+      httpClient.get('/api/alerting/v2/monitors/alerts', { query: pplQuery })?.then((resp) => {
+        if (!this._isMounted) {
+          return;
+        }
+        if (resp.ok) {
+          const payload = resp.resp || resp;
+          let allAlerts = [];
+
+          // v2 API returns: { alerts_v2: [...], total_alerts_v2: N }
+          const alertsArray = payload?.alerts_v2 || payload?.alertV2s;
+          if (Array.isArray(alertsArray)) {
+            allAlerts = alertsArray;
           }
-          if (resp.ok) {
-            const payload = resp.resp || resp;
-            let allAlerts = [];
 
-            // v2 API returns: { alerts_v2: [...], total_alerts_v2: N }
-            const alertsArray = payload?.alerts_v2 || payload?.alertV2s;
-            if (Array.isArray(alertsArray)) {
-              allAlerts = alertsArray;
-            }
+          // Filter by trigger_v2_id (in v2, triggerID should be trigger_v2_id)
+          const filteredAlerts = allAlerts.filter((a) => a.trigger_v2_id === triggerID);
 
-            // Filter by trigger_v2_id (in v2, triggerID should be trigger_v2_id)
-            const filteredAlerts = allAlerts.filter((a) => a.trigger_v2_id === triggerID);
-
-            this.setState({
-              alerts: filteredAlerts,
-              totalAlerts: filteredAlerts.length,
-              openResultPopoverId: null,
-            });
-          } else {
-            backendErrorNotification(notifications, 'get', 'alerts', resp.err);
-          }
-          this.setState({ tabContent: this.renderAlertsTable(), loading: false });
-        });
+          this.setState({
+            alerts: filteredAlerts,
+            totalAlerts: filteredAlerts.length,
+            openResultPopoverId: null,
+          });
+        } else {
+          backendErrorNotification(notifications, 'get', 'alerts', resp.err);
+        }
+        this.setState({ tabContent: this.renderAlertsTable(), loading: false });
+      });
     } else {
       // For v1/classic mode, use the existing v1 API
       httpClient.get('../api/alerting/alerts', { query: extendedParams })?.then((resp) => {
@@ -324,6 +327,10 @@ export default class AlertsDashboardFlyoutComponent extends Component {
 
   onAlertStateChange = (e) => {
     this.setState({ page: 0, alertState: e.target.value });
+  };
+
+  onSeverityLevelChange = (e) => {
+    this.setState({ page: 0, severityLevel: e.target.value });
   };
 
   onPageClick = (page) => {
@@ -623,6 +630,12 @@ export default class AlertsDashboardFlyoutComponent extends Component {
       }
       return acc;
     }, {});
+    const v2StateOptions = [
+      { value: 'ALL', text: 'All alerts' },
+      { value: ALERT_STATE.ACTIVE, text: 'Active' },
+      { value: ALERT_STATE.ERROR, text: 'Error' },
+    ];
+
     return (
       <ContentPanel
         title={'Alerts'}
@@ -630,19 +643,39 @@ export default class AlertsDashboardFlyoutComponent extends Component {
         bodyStyles={{ padding: 'initial' }}
         actions={actions()}
       >
-        <DashboardControls
-          activePage={page}
-          pageCount={Math.ceil(totalAlerts / size) || 1}
-          search={search}
-          severity={severityLevel}
-          state={alertState}
-          onSearchChange={this.onSearchChange}
-          onStateChange={this.onAlertStateChange}
-          onPageChange={this.onPageClick}
-          isAlertsFlyout={true}
-          monitorType={monitorType}
-          panelStyles={{ padding: '8px 0px 16px' }}
-        />
+        {isV2 ? (
+          <EuiFlexGroup style={{ padding: '8px 0px 16px' }} gutterSize="s">
+            <EuiFlexItem grow={false}>
+              <EuiCompressedSelect
+                options={PPL_SEVERITY_FILTER_OPTIONS}
+                value={severityLevel || 'ALL'}
+                onChange={this.onSeverityLevelChange}
+              />
+            </EuiFlexItem>
+            <EuiFlexItem grow={false}>
+              <EuiCompressedSelect
+                options={v2StateOptions}
+                value={alertState || 'ALL'}
+                onChange={this.onAlertStateChange}
+                data-test-subj={'dashboardAlertStateFilter'}
+              />
+            </EuiFlexItem>
+          </EuiFlexGroup>
+        ) : (
+          <DashboardControls
+            activePage={page}
+            pageCount={Math.ceil(totalAlerts / size) || 1}
+            search={search}
+            severity={severityLevel}
+            state={alertState}
+            onSearchChange={this.onSearchChange}
+            onStateChange={this.onAlertStateChange}
+            onPageChange={this.onPageClick}
+            isAlertsFlyout={true}
+            monitorType={monitorType}
+            panelStyles={{ padding: '8px 0px 16px' }}
+          />
+        )}
         <EuiBasicTable
           items={loading ? [] : trimmedAlerts}
           /*
@@ -716,7 +749,7 @@ export default class AlertsDashboardFlyoutComponent extends Component {
       start_time,
       triggerID,
       trigger_name,
-      viewMode = 'new', // Get viewMode from props
+      viewMode = 'classic', // default to classic behaviour
     } = this.props;
     const { alerts, loading, localClusterName, monitor, monitorType, tabContent } = this.state;
 
@@ -821,12 +854,14 @@ export default class AlertsDashboardFlyoutComponent extends Component {
               <p>{getTime(start_time)}</p>
             </EuiText>
           </EuiFlexItem>
-          <EuiFlexItem>
-            <EuiText size="s">
-              <strong>Trigger last updated</strong>
-              <p>{getTime(lastUpdatedTime)}</p>
-            </EuiText>
-          </EuiFlexItem>
+          {!isV2 && (
+            <EuiFlexItem>
+              <EuiText size="s">
+                <strong>Trigger last updated</strong>
+                <p>{getTime(lastUpdatedTime)}</p>
+              </EuiText>
+            </EuiFlexItem>
+          )}
         </EuiFlexGroup>
 
         <EuiSpacer size="xxl" />
@@ -840,12 +875,14 @@ export default class AlertsDashboardFlyoutComponent extends Component {
               </p>
             </EuiText>
           </EuiFlexItem>
-          <EuiFlexItem>
-            <EuiText size="s">
-              <strong>Monitor data sources</strong>
-              <p style={{ whiteSpace: 'pre-wrap' }}>{dataSources}</p>
-            </EuiText>
-          </EuiFlexItem>
+          {!isV2 && (
+            <EuiFlexItem>
+              <EuiText size="s">
+                <strong>Monitor data sources</strong>
+                <p style={{ whiteSpace: 'pre-wrap' }}>{dataSources}</p>
+              </EuiText>
+            </EuiFlexItem>
+          )}
         </EuiFlexGroup>
 
         <EuiHorizontalRule margin="xxl" />
@@ -860,17 +897,21 @@ export default class AlertsDashboardFlyoutComponent extends Component {
             </EuiText>
           </EuiFlexItem>
 
-          {![MONITOR_TYPE.DOC_LEVEL, MONITOR_TYPE.COMPOSITE_LEVEL].includes(monitorType) && (
-            <EuiFlexItem>
-              <EuiText size="s" data-test-subj={`alertsDashboardFlyout_timeRange_${trigger_name}`}>
-                <strong>Time range for the last</strong>
-                <p>{timeRangeForLast}</p>
-              </EuiText>
-            </EuiFlexItem>
-          )}
+          {!isV2 &&
+            ![MONITOR_TYPE.DOC_LEVEL, MONITOR_TYPE.COMPOSITE_LEVEL].includes(monitorType) && (
+              <EuiFlexItem>
+                <EuiText
+                  size="s"
+                  data-test-subj={`alertsDashboardFlyout_timeRange_${trigger_name}`}
+                >
+                  <strong>Time range for the last</strong>
+                  <p>{timeRangeForLast}</p>
+                </EuiText>
+              </EuiFlexItem>
+            )}
         </EuiFlexGroup>
 
-        {![MONITOR_TYPE.DOC_LEVEL, MONITOR_TYPE.COMPOSITE_LEVEL].includes(monitorType) && (
+        {!isV2 && ![MONITOR_TYPE.DOC_LEVEL, MONITOR_TYPE.COMPOSITE_LEVEL].includes(monitorType) && (
           <div>
             <EuiSpacer size="xxl" />
 

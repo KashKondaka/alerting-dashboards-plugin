@@ -6,9 +6,11 @@
 import React from 'react';
 import { EuiFlexGroup, EuiSmallButtonIcon, EuiText, EuiFlexItem } from '@elastic/eui';
 import AlertsDashboardFlyoutComponent from './components/AlertsDashboardFlyoutComponent';
+import AlertsDashboardFlyoutComponentPpl from './components/AlertsDashboardFlyoutComponentPpl';
 
 const alertsDashboard = (payload) => {
-  const { closeFlyout, trigger_name } = payload;
+  const { closeFlyout, trigger_name, viewMode } = payload;
+  const isPplView = viewMode === 'new';
   return {
     flyoutProps: {
       'aria-labelledby': 'alertsDashboardFlyout',
@@ -40,7 +42,11 @@ const alertsDashboard = (payload) => {
       </EuiFlexGroup>
     ),
     footerProps: { style: { backgroundColor: '#F5F7FA' } },
-    body: <AlertsDashboardFlyoutComponent {...payload} />,
+    body: isPplView ? (
+      <AlertsDashboardFlyoutComponentPpl {...payload} />
+    ) : (
+      <AlertsDashboardFlyoutComponent {...payload} />
+    ),
   };
 };
 
