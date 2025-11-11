@@ -256,7 +256,17 @@ class ConfigureActionsPpl extends React.Component {
         break;
     }
 
-    const testMonitor = { ...monitor, triggers: [{ ...testTrigger }] };
+    const testMonitor = {
+      ...monitor,
+      name: monitor.name || values.name,
+      schedule: monitor.schedule || {
+        period: {
+          interval: values.period?.interval || 1, // Default selection in UI is 1
+          unit: values.period?.unit || 'MINUTES', // Default selection in UI is minutes
+        },
+      },
+      triggers: [{ ...testTrigger }],
+    };
 
     try {
       const response = await httpClient.post('../api/alerting/monitors/_execute', {
