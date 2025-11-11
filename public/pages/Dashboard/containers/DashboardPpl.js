@@ -685,6 +685,8 @@ export default class DashboardPpl extends Component {
     const shouldShowPagination = !perAlertView && totalAlerts > 0;
     const showInlineActions = useUpdatedUx;
 
+    const panelPadding = useUpdatedUx && totalAlerts < 1 ? '16px 16px 0px' : '16px';
+
     return (
       <>
         <ContentPanel
@@ -693,7 +695,7 @@ export default class DashboardPpl extends Component {
           bodyStyles={{ padding: 'initial' }}
           actions={useUpdatedUx ? undefined : actions()}
           panelOptions={{ hideTitleBorder: useUpdatedUx }}
-          panelStyles={{ padding: useUpdatedUx ? '0px' : '16px' }}
+          panelStyles={{ padding: panelPadding }}
         >
           {!perAlertView && (
             <>
@@ -741,9 +743,7 @@ export default class DashboardPpl extends Component {
             alertActions={showInlineActions ? actions() : undefined}
             panelStyles={{
               padding: perAlertView
-                ? useUpdatedUx
-                  ? '8px 16px 16px'
-                  : '8px 0px 16px'
+                ? '8px 0px 16px'
                 : useUpdatedUx
                 ? '0px 16px 16px'
                 : '0px 0px 16px',
