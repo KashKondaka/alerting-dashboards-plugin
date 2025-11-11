@@ -331,16 +331,18 @@ class DefineTriggerPpl extends Component {
         }
         initialIsOpen={edit ? false : triggerIndex === 0}
         extraAction={
-          <EuiButtonEmpty
-            color="danger"
-            size="s"
-            style={{ border: '1px solid #D3DAE6', borderRadius: '6px' }}
-            onClick={() => {
-              triggerArrayHelpers.remove(triggerIndex);
-            }}
-          >
-            Remove trigger
-          </EuiButtonEmpty>
+          !flyoutMode && (
+            <EuiButtonEmpty
+              color="danger"
+              size="s"
+              style={{ border: '1px solid #D3DAE6', borderRadius: '6px' }}
+              onClick={() => {
+                triggerArrayHelpers.remove(triggerIndex);
+              }}
+            >
+              Remove trigger
+            </EuiButtonEmpty>
+          )
         }
         style={{ paddingBottom: '15px', paddingTop: '10px' }}
       >

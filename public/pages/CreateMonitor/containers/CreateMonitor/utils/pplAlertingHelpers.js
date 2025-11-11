@@ -73,9 +73,7 @@ export const getInitialValues = ({
     initialValues.index = index;
     initialValues.timeField = timeField;
 
-    const monitorType = initialValues.monitor_type;
-    const initialTrigger = getInitialTriggerValues({ flyoutMode, monitorType, triggers: [] });
-    initialValues.triggerDefinitions = [initialTrigger];
+    initialValues.triggerDefinitions = [];
 
     initialValues.aggregations = getMetricAgg(embeddable);
 
@@ -107,10 +105,20 @@ export const getInitialValues = ({
   }
 
   if (edit && monitorToEdit) {
-    const triggers = triggerToFormikPpl(_.get(monitorToEdit, 'triggers', []));
+    const monitorLevelTriggers = _.get(monitorToEdit, 'ppl_monitor.triggers', []);
+    const rootLevelTriggers = _.get(monitorToEdit, 'triggers', []);
+    const rawTriggers =
+      Array.isArray(monitorLevelTriggers) && monitorLevelTriggers.length
+        ? monitorLevelTriggers
+        : Array.isArray(rootLevelTriggers)
+        ? rootLevelTriggers
+        : [];
+
+    const normalizedTriggers = rawTriggers.map((trigger) => triggerToFormikPpl(trigger));
+
     initialValues = {
       ...pplAlertingMonitorToFormik(monitorToEdit),
-      triggerDefinitions: triggers.triggerDefinitions,
+      triggerDefinitions: normalizedTriggers,
     };
     const isPpl =
       initialValues?.query_language === 'ppl' ||

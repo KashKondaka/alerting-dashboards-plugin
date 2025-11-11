@@ -341,7 +341,22 @@ class ConfigureActions extends React.Component {
             index={index}
             onDelete={() => {
               this.setState({ actionDeleted: true });
+              const actionsList = _.get(values, `${fieldPath}actions`, []);
               arrayHelpers.remove(index);
+              const form = arrayHelpers.form;
+              const updatedErrors = _.cloneDeep(form.errors);
+              _.unset(updatedErrors, `${fieldPath}actions[${index}]`);
+              if ((actionsList.length || 0) <= 1) {
+                _.unset(updatedErrors, `${fieldPath}actions`);
+              }
+              form.setErrors(updatedErrors);
+
+              const updatedTouched = _.cloneDeep(form.touched);
+              _.unset(updatedTouched, `${fieldPath}actions[${index}]`);
+              if ((actionsList.length || 0) <= 1) {
+                _.unset(updatedTouched, `${fieldPath}actions`);
+              }
+              form.setTouched(updatedTouched, false);
             }}
             sendTestMessage={this.sendTestMessage}
             setFlyout={setFlyout}
