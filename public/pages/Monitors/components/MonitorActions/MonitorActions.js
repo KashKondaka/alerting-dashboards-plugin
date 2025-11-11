@@ -105,11 +105,13 @@ export default class MonitorActions extends Component {
 
   render() {
     const { isActionsOpen } = this.state;
-    const { isEditDisabled, onClickEdit } = this.props;
+    const { isEditDisabled, onClickEdit, viewMode = 'classic' } = this.props;
+    const modeParam =
+      viewMode === 'classic' ? '?mode=classic' : viewMode === 'new' ? '?mode=new' : '';
     const createMonitorControl = (
       <EuiSmallButton
         fill
-        href={`#${APP_PATH.CREATE_MONITOR}`}
+        href={`#${APP_PATH.CREATE_MONITOR}${modeParam}`}
         data-test-subj="createButton"
         iconType="plus"
         iconSide="left"

@@ -512,6 +512,7 @@ export default class Monitors extends Component {
       params.append('action', MONITOR_ACTIONS.EDIT_MONITOR);
       if (viewMode) {
         params.append('viewMode', viewMode);
+        params.append('mode', viewMode === 'classic' ? 'classic' : 'new');
       }
       if (dataSourceId) {
         params.append('dataSourceId', dataSourceId);

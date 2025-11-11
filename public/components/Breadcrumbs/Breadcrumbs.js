@@ -154,6 +154,14 @@ const extractMonitorNameFromV2 = (payload = {}) => {
 
 const shouldPreferV2ViewMode = () => {
   try {
+    const searchParams = new URLSearchParams(window.location?.search || '');
+    const requestedMode = searchParams.get('mode');
+    if (requestedMode === 'classic') {
+      return false;
+    }
+    if (requestedMode === 'new') {
+      return true;
+    }
     const stored = localStorage.getItem('alerting_monitors_view_mode');
     return stored === 'new';
   } catch (e) {

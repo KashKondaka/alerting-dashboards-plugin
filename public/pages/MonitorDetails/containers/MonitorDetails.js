@@ -48,6 +48,11 @@ export default class MonitorDetailsRouter extends Component {
 
   getBaseViewMode = () => {
     const searchParams = new URLSearchParams(this.props.location.search);
+    const requestedMode = searchParams.get('mode');
+    if (requestedMode === 'classic' || requestedMode === 'new') {
+      return requestedMode;
+    }
+
     const urlViewMode = searchParams.get('viewMode');
     if (urlViewMode === 'classic' || urlViewMode === 'new') {
       return urlViewMode;
@@ -113,6 +118,8 @@ export default class MonitorDetailsRouter extends Component {
     const searchParams = new URLSearchParams(this.props.location.search);
     const isEditAction = searchParams.get('action') === MONITOR_ACTIONS.EDIT_MONITOR;
     const pplEnabled = isPplAlertingEnabled();
+    const requestedMode = searchParams.get('mode');
+    const forceClassic = requestedMode === 'classic' || baseViewMode === 'classic';
     console.log('[MonitorDetailsRouter] resolveViewMode:start', {
       baseViewMode,
       isEditAction,
@@ -138,7 +145,7 @@ export default class MonitorDetailsRouter extends Component {
         let monitor = null;
         const shouldStayOnV2 = pplEnabled && baseViewMode === 'new';
 
-        if (pplEnabled) {
+        if (pplEnabled && !forceClassic) {
           console.log('[MonitorDetailsRouter] attempt fetch v2 monitor', {
             monitorId,
             dataSourceQuery,
