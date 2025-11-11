@@ -40,10 +40,13 @@ import {
   MONITOR_TYPE,
 } from '../../../utils/constants';
 import { migrateTriggerMetadata } from './utils/helpers';
-import { backendErrorNotification, deleteMonitor } from '../../../utils/helpers';
+import { backendErrorNotification } from '../../../utils/helpers';
+import { deletePplMonitor } from '../../../utils/pplHelpers';
 import { getUnwrappedTriggers } from './Triggers/Triggers';
 import { formikToMonitor } from '../../CreateMonitor/containers/CreateMonitor/utils/formikToMonitor';
 import monitorToFormik from '../../CreateMonitor/containers/CreateMonitor/utils/monitorToFormik';
+import pplAlertingMonitorToFormik from '../../CreateMonitor/containers/CreateMonitor/utils/pplAlertingMonitorToFormik';
+import { buildPPLMonitorFromFormik } from '../../CreateMonitor/containers/CreateMonitor/utils/pplFormikToMonitor';
 import FindingsDashboard from '../../Dashboard/containers/FindingsDashboard';
 import { TABLE_TAB_IDS } from '../../Dashboard/components/FindingsDashboard/findingsUtils';
 import { DeleteMonitorModal } from '../../../components/DeleteModal/DeleteMonitorModal';
@@ -171,16 +174,14 @@ export default class MonitorDetailsV2 extends Component {
   };
 
   updateDelegateMonitors = async (monitor) => {
-    const dataSourceQuery = getDataSourceQueryObj();
     const getMonitor = async (id) => {
-      const url = `../api/alerting/monitors/${id}`;
-      return this.props.httpClient
-        .get(url, dataSourceQuery)
-        .then((res) => res.resp)
-        .catch((err) => {
-          console.error('err', err);
-          return undefined;
-        });
+      try {
+        const resp = await this.getMonitorFromApi(id, { treatAsWorkflow: false });
+        return resp?.ok ? resp.resp : undefined;
+      } catch (err) {
+        console.error('err', err);
+        return undefined;
+      }
     };
 
     const delegateMonitors = [];
@@ -201,38 +202,71 @@ export default class MonitorDetailsV2 extends Component {
     });
   };
 
-  getMonitor = (id) => {
-    const { httpClient } = this.props;
-    const isWorkflow = this.isWorkflow();
-    const url = `../api/alerting/${isWorkflow ? 'workflows' : 'monitors'}/${id}`;
+  getMonitorFromApi = (id, { treatAsWorkflow = false } = {}) => {
     const dataSourceQuery = getDataSourceQueryObj();
-    const response = httpClient.get(url, dataSourceQuery);
-    response
-      .then((resp) => {
-        const {
-          ok,
-          resp: monitor,
-          version: monitorVersion,
-          dayCount,
-          activeCount,
-          ifSeqNo,
-          ifPrimaryTerm,
-        } = resp;
-        if (ok) {
+    const { httpClient, viewMode } = this.props;
+    const encodedId = encodeURIComponent(id);
+
+    if (viewMode === 'new') {
+      return httpClient.get(`../api/alerting/v2/monitors/${encodedId}`, dataSourceQuery);
+    }
+
+    const resource = treatAsWorkflow ? 'workflows' : 'monitors';
+    return httpClient.get(`../api/alerting/${resource}/${encodedId}`, dataSourceQuery);
+  };
+
+  getMonitor = (id) => {
+    const fetchMonitor = async () => {
+      try {
+        const isWorkflow = this.isWorkflow();
+        const resp = await this.getMonitorFromApi(id, { treatAsWorkflow: isWorkflow });
+
+        if (resp?.ok) {
+          const {
+            resp: monitorPayload,
+            version: monitorVersion,
+            dayCount,
+            activeCount,
+            ifSeqNo,
+            ifPrimaryTerm,
+          } = resp;
+
           if (isWorkflow) {
-            this.updateDelegateMonitors(monitor);
+            this.updateDelegateMonitors(monitorPayload);
           }
+
+          const normalizedMonitor = migrateTriggerMetadata(monitorPayload);
+          const pplMonitor = this.getV2Ppl(normalizedMonitor);
+          if (pplMonitor) {
+            normalizedMonitor.name = pplMonitor.name ?? normalizedMonitor.name;
+            normalizedMonitor.description = pplMonitor.description ?? normalizedMonitor.description;
+            normalizedMonitor.last_update_time =
+              pplMonitor.last_update_time ?? normalizedMonitor.last_update_time;
+            normalizedMonitor.timestamp_field =
+              pplMonitor.timestamp_field ?? normalizedMonitor.timestamp_field;
+          }
+
+          const monitorIdentifier = monitorPayload?.id || normalizedMonitor?.id || id;
+          const enrichedMonitor = {
+            ...normalizedMonitor,
+            id: monitorIdentifier,
+            _id: monitorPayload?._id || normalizedMonitor?._id || monitorIdentifier,
+            _seq_no: ifSeqNo,
+            _primary_term: ifPrimaryTerm,
+          };
+
           this.setState({
             ifSeqNo,
             ifPrimaryTerm,
-            monitor: migrateTriggerMetadata(monitor),
+            monitor: enrichedMonitor,
             monitorVersion,
             dayCount,
             activeCount,
             loading: false,
             error: null,
           });
-          const adId = _.get(monitor, MONITOR_INPUT_DETECTOR_ID, undefined);
+
+          const adId = _.get(normalizedMonitor, MONITOR_INPUT_DETECTOR_ID, undefined);
           if (adId) {
             this.getDetector(adId);
           }
@@ -240,10 +274,13 @@ export default class MonitorDetailsV2 extends Component {
         } else {
           this.props.history.push('/monitors');
         }
-      })
-      .catch((err) => {
+      } catch (err) {
         console.log('err', err);
-      });
+        this.props.history.push('/monitors');
+      }
+    };
+
+    fetchMonitor();
   };
 
   updateMonitor = async (update, actionKeywords = ['update', 'monitor']) => {
@@ -272,16 +309,7 @@ export default class MonitorDetailsV2 extends Component {
       if (ifPrimaryTerm !== undefined) queryParams.ifPrimaryTerm = ifPrimaryTerm;
     }
 
-    const isPplMonitor = Boolean(
-      this.getV2Ppl(monitor) ||
-        monitor?.ppl_monitor ||
-        monitor?.monitor_mode === 'ppl' ||
-        monitor?.monitorMode === 'ppl' ||
-        (typeof monitor?.query_language === 'string' &&
-          monitor.query_language.toLowerCase() === 'ppl') ||
-        (typeof monitor?.queryLanguage === 'string' &&
-          monitor.queryLanguage.toLowerCase() === 'ppl')
-    );
+    const isPplMonitor = this.props.viewMode === 'new';
 
     try {
       let resp;
@@ -300,6 +328,9 @@ export default class MonitorDetailsV2 extends Component {
           '_version',
           'ifSeqNo',
           'ifPrimaryTerm',
+          'ui_metadata',
+          'last_update_time',
+          'enabled_time',
         ]);
 
         if (Array.isArray(cleanedPplMonitor.triggers)) {
@@ -308,9 +339,15 @@ export default class MonitorDetailsV2 extends Component {
           );
         }
 
-        resp = await httpClient.put(`../api/alerting/monitors/${monitorId}`, {
-          query: queryParams,
-          body: JSON.stringify({ monitor_mode: 'ppl', ppl_monitor: cleanedPplMonitor }),
+        const pplQuery = {
+          ...(dataSourceQuery?.query || {}),
+        };
+        if (ifSeqNo !== undefined) pplQuery.if_seq_no = ifSeqNo;
+        if (ifPrimaryTerm !== undefined) pplQuery.if_primary_term = ifPrimaryTerm;
+
+        resp = await httpClient.put(`../api/alerting/v2/monitors/${monitorId}`, {
+          query: pplQuery,
+          body: JSON.stringify({ ppl_monitor: cleanedPplMonitor }),
         });
       } else {
         const legacyPayload = _.omit({ ...monitor, ...update }, [
@@ -413,6 +450,19 @@ export default class MonitorDetailsV2 extends Component {
   };
 
   getJsonForExport = (monitor) => {
+    if (!monitor) return {};
+
+    const isPplView = this.props.viewMode === 'new';
+    const pplSource = this.getV2Ppl(monitor) || (isPplView && monitor ? monitor : null);
+
+    if (pplSource) {
+      const formikValues = pplAlertingMonitorToFormik(this.getV2Ppl(monitor) ? monitor : pplSource);
+      formikValues.triggerDefinitions = Array.isArray(pplSource.triggers)
+        ? _.cloneDeep(pplSource.triggers)
+        : [];
+      return buildPPLMonitorFromFormik(formikValues);
+    }
+
     const monitorValues = monitorToFormik(monitor);
     const triggers = _.get(monitor, 'triggers', []);
     return { ...formikToMonitor(monitorValues), triggers };
@@ -424,7 +474,7 @@ export default class MonitorDetailsV2 extends Component {
 
   deleteMonitor = async () => {
     const dataSourceQuery = getDataSourceQueryObj();
-    await deleteMonitor(
+    await deletePplMonitor(
       this.state.monitor,
       this.props.httpClient,
       this.props.notifications,
@@ -636,13 +686,8 @@ export default class MonitorDetailsV2 extends Component {
         <MonitorOverviewV2
           monitor={displayMonitor}
           monitorId={monitorId}
-          monitorVersion={monitorVersion}
           activeCount={activeCount}
-          detector={detector}
-          detectorId={detectorId}
           delegateMonitors={delegateMonitors}
-          localClusterName={localClusterName}
-          setFlyout={setFlyout}
           landingDataSourceId={this.context?.dataSourceId}
         />
         <EuiSpacer />

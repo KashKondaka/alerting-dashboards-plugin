@@ -9,6 +9,7 @@ import MonitorDetailsV2 from './MonitorDetailsV2';
 import { MONITOR_ACTIONS } from '../../../utils/constants';
 import { getDataSourceQueryObj } from '../../utils/helpers';
 import { isPplAlertingEnabled } from '../../../services';
+import { isPplMonitor as isPplMonitorUtil } from '../../../utils/pplHelpers';
 
 /**
  * Router component that decides whether to show v1 or v2 MonitorDetails
@@ -57,16 +58,6 @@ export default class MonitorDetailsRouter extends Component {
     return 'new';
   };
 
-  isPplMonitor = (monitor) => {
-    if (!monitor) return false;
-    if (monitor.monitor_v2 || monitor.ppl_monitor) return true;
-    const queryLanguage = monitor.query_language || monitor.queryLanguage;
-    if (typeof queryLanguage === 'string' && queryLanguage.toLowerCase() === 'ppl') {
-      return true;
-    }
-    return false;
-  };
-
   resolveViewMode = async () => {
     const baseViewMode = this.getBaseViewMode();
     const searchParams = new URLSearchParams(this.props.location.search);
@@ -85,13 +76,34 @@ export default class MonitorDetailsRouter extends Component {
       const dataSourceQuery = getDataSourceQueryObj();
       const monitorId = this.props.match?.params?.monitorId;
       if (monitorId) {
-        const resp = await this.props.httpClient.get(
-          `../api/alerting/monitors/${encodeURIComponent(monitorId)}`,
-          dataSourceQuery
-        );
-        const monitor = resp?.resp;
+        let monitor = null;
+
+        if (pplEnabled) {
+          try {
+            const pplResp = await this.props.httpClient.get(
+              `../api/alerting/v2/monitors/${encodeURIComponent(monitorId)}`,
+              dataSourceQuery
+            );
+            monitor = pplResp?.resp ?? null;
+          } catch (e) {
+            // fall back to legacy endpoint
+          }
+        }
+
+        if (!monitor) {
+          try {
+            const legacyResp = await this.props.httpClient.get(
+              `../api/alerting/monitors/${encodeURIComponent(monitorId)}`,
+              dataSourceQuery
+            );
+            monitor = legacyResp?.resp ?? null;
+          } catch (e) {
+            // legacy endpoint may not exist; swallow and use base view mode
+          }
+        }
+
         if (monitor) {
-          resolvedViewMode = this.isPplMonitor(monitor) ? 'new' : 'classic';
+          resolvedViewMode = isPplMonitorUtil(monitor) ? 'new' : 'classic';
         }
       }
     } catch (err) {
@@ -125,9 +137,9 @@ export default class MonitorDetailsRouter extends Component {
 
     const pplEnabled = isPplAlertingEnabled();
     if (viewMode === 'classic' || !pplEnabled) {
-      return <MonitorDetailsV1 {...this.props} />;
+      return <MonitorDetailsV1 {...this.props} viewMode="classic" />;
     }
 
-    return <MonitorDetailsV2 {...this.props} />;
+    return <MonitorDetailsV2 {...this.props} viewMode="new" />;
   }
 }

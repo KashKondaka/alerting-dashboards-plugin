@@ -50,7 +50,7 @@ import { backendErrorNotification } from '../../utils/helpers';
 import { MONITOR_TYPE, SEARCH_TYPE } from '../../utils/constants';
 import CustomSteps from '../../pages/CreateMonitor/components/CustomSteps';
 import ConfigureTriggers from '../../pages/CreateTrigger/containers/ConfigureTriggers';
-import { QueryEditor } from '../QueryEditor';
+import { QueryEditor } from '../../pages/CreateMonitor/components/QueryEditor';
 import { AlertingDataTable } from '../DataTable';
 import {
   runPPLPreview,

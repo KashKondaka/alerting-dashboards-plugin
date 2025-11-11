@@ -22,20 +22,31 @@ export default class MonitorActions extends Component {
   };
 
   getActions = () => {
-    // TODO: Support bulk acknowledge alerts across multiple monitors after figuring out the correct parameter for getAlerts API.
-    // Disabling the acknowledge button for now when more than 1 monitors selected.
-    const { isEditDisabled, isDeleteDisabled } = this.props;
-    const actions = [
-      <EuiContextMenuItem
-        key="acknowledge"
-        data-test-subj="acknowledgeItem"
-        onClick={() => {
-          this.onCloseActions();
-          this.props.onBulkAcknowledge();
-        }}
-      >
-        Acknowledge
-      </EuiContextMenuItem>,
+    const {
+      isEditDisabled,
+      isDeleteDisabled,
+      isEnableDisabled,
+      isDisableDisabled,
+      viewMode = 'classic',
+    } = this.props;
+    const actions = [];
+
+    if (viewMode === 'classic' && !isEditDisabled) {
+      actions.push(
+        <EuiContextMenuItem
+          key="acknowledge"
+          data-test-subj="acknowledgeItem"
+          onClick={() => {
+            this.onCloseActions();
+            this.props.onBulkAcknowledge();
+          }}
+        >
+          Acknowledge
+        </EuiContextMenuItem>
+      );
+    }
+
+    actions.push(
       <EuiContextMenuItem
         key="edit"
         data-test-subj="editItem"
@@ -54,6 +65,7 @@ export default class MonitorActions extends Component {
           this.onCloseActions();
           this.props.onBulkEnable();
         }}
+        disabled={isEnableDisabled}
       >
         Enable
       </EuiContextMenuItem>,
@@ -64,6 +76,7 @@ export default class MonitorActions extends Component {
           this.onCloseActions();
           this.props.onBulkDisable();
         }}
+        disabled={isDisableDisabled}
       >
         Disable
       </EuiContextMenuItem>,
@@ -77,9 +90,9 @@ export default class MonitorActions extends Component {
         disabled={isDeleteDisabled}
       >
         Delete
-      </EuiContextMenuItem>,
-    ];
-    if (isEditDisabled) actions.splice(0, 1);
+      </EuiContextMenuItem>
+    );
+
     return actions;
   };
 
@@ -96,7 +109,8 @@ export default class MonitorActions extends Component {
     const { isEditDisabled, onClickEdit } = this.props;
     const createMonitorControl = (
       <EuiSmallButton
-        fill href={`#${APP_PATH.CREATE_MONITOR}`}
+        fill
+        href={`#${APP_PATH.CREATE_MONITOR}`}
         data-test-subj="createButton"
         iconType="plus"
         iconSide="left"

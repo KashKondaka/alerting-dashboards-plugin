@@ -15,13 +15,8 @@ import { getURL } from '../../../utils/helpers';
 const MonitorOverviewV2 = ({
   monitor,
   monitorId,
-  monitorVersion,
   activeCount,
-  detector,
-  detectorId,
   delegateMonitors,
-  localClusterName,
-  setFlyout,
   landingDataSourceId,
 }) => {
   const [flyoutData, setFlyoutData] = useState(undefined);
@@ -68,16 +63,7 @@ const MonitorOverviewV2 = ({
 
   const onFlyoutClose = () => setFlyoutData(undefined);
 
-  const items = getOverviewStatsV2(
-    monitor,
-    monitorId,
-    monitorVersion,
-    activeCount,
-    detector,
-    detectorId,
-    localClusterName,
-    setFlyout
-  );
+  const items = getOverviewStatsV2(monitor, monitorId, activeCount);
 
   return (
     <>
