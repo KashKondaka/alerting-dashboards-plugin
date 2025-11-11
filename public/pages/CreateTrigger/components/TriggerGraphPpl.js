@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useRef, useCallback, useEffect, useState } from 'react';
+import React, { useRef, useCallback, useEffect, useState, useMemo } from 'react';
 import PropTypes from 'prop-types';
 import _ from 'lodash';
 import { EuiSpacer, EuiText, EuiRadioGroup } from '@elastic/eui';
@@ -13,17 +13,19 @@ import TriggerExpressionsPpl from './TriggerExpressions/TriggerExpressionsPpl';
 
 const TriggerGraphPpl = ({
   monitorValues,
-  response,
+  response = {},
   thresholdValue,
   thresholdEnum,
   fieldPath,
   flyoutMode,
   hideThresholdControls = false,
   showModeSelector = false,
+  errorMessage,
+  thresholdFieldName = 'thresholdValue',
 }) => {
   const hasSetInitialThreshold = useRef(false);
   const [graphKey, setGraphKey] = useState(0);
-  const [formikHelperRef, setFormikHelperRef] = useState(null);
+  const formikHelperRef = useRef(null);
 
   useEffect(() => {
     setGraphKey((prev) => prev + 1);
@@ -31,58 +33,102 @@ const TriggerGraphPpl = ({
 
   const handleMaxYValueCalculated = useCallback(
     (maxY) => {
+      const thresholdNumericValue = Number(thresholdValue);
+      const thresholdUnset =
+        thresholdValue === undefined ||
+        thresholdValue === null ||
+        thresholdValue === '' ||
+        Number.isNaN(thresholdNumericValue) ||
+        thresholdNumericValue <= 0 ||
+        thresholdValue === 10000;
+
       if (
         !hasSetInitialThreshold.current &&
-        thresholdValue === 10000 &&
+        thresholdUnset &&
         maxY > 0 &&
-        formikHelperRef
+        formikHelperRef.current
       ) {
-        formikHelperRef.setValue(maxY);
+        formikHelperRef.current.setValue(Math.ceil(maxY));
         hasSetInitialThreshold.current = true;
       }
     },
-    [thresholdValue, formikHelperRef]
+    [thresholdValue]
   );
 
-  let buckets =
-    _.get(response, 'aggregations.date_histogram.buckets') ||
-    _.get(response, 'aggregations.counts.buckets') ||
-    _.get(response, 'aggregations.count_over_time.buckets') ||
-    _.get(response, 'aggregations.combined_value.buckets') ||
-    _.get(response, 'aggregations.ppl_histogram.buckets') ||
-    [];
+  const graphBuckets = useMemo(() => {
+    const extracted =
+      _.get(response, 'aggregations.date_histogram.buckets') ||
+      _.get(response, 'aggregations.counts.buckets') ||
+      _.get(response, 'aggregations.count_over_time.buckets') ||
+      _.get(response, 'aggregations.combined_value.buckets') ||
+      _.get(response, 'aggregations.ppl_histogram.buckets') ||
+      [];
 
-  const total =
-    _.get(response, 'hits.total.value') ??
-    (_.get(response, 'total') !== undefined ? _.get(response, 'total') : undefined);
+    if (Array.isArray(extracted) && extracted.length > 0) {
+      return extracted;
+    }
 
-  const shouldSynthesizeBuckets = !response || !response.aggregations;
-  if ((!buckets || buckets.length === 0) && shouldSynthesizeBuckets) {
-    const now = Date.now();
-    buckets = [{ key: now, doc_count: 0 }];
-  }
+    const shouldSynthesize = !response || !response.aggregations;
+    if (shouldSynthesize) {
+      const now = Date.now();
+      return [{ key: now, doc_count: 0 }];
+    }
 
-  const graphResponse = {
-    hits: total != null ? { total: { value: Number(total) || 0, relation: 'eq' } } : undefined,
-    aggregations: {
-      count_over_time: { buckets },
-      combined_value: { buckets },
-      date_histogram: { buckets },
-      ppl_histogram: { buckets },
-    },
-  };
+    return extracted || [];
+  }, [response]);
+
+  const total = useMemo(
+    () =>
+      _.get(response, 'hits.total.value') ??
+      (_.get(response, 'total') !== undefined ? _.get(response, 'total') : undefined),
+    [response]
+  );
+
+  const graphResponse = useMemo(
+    () => ({
+      hits: total != null ? { total: { value: Number(total) || 0, relation: 'eq' } } : undefined,
+      aggregations: {
+        count_over_time: { buckets: graphBuckets },
+        combined_value: { buckets: graphBuckets },
+        date_histogram: { buckets: graphBuckets },
+        ppl_histogram: { buckets: graphBuckets },
+      },
+    }),
+    [graphBuckets, total]
+  );
 
   return (
-    <div style={flyoutMode ? {} : { padding: '0px 10px' }}>
-      <Field name={`${fieldPath}thresholdValue`}>
+    <div style={{ marginBottom: 0 }}>
+      <Field name={`${fieldPath}${thresholdFieldName}`}>
         {({ field, form }) => {
           useEffect(() => {
-            if (!formikHelperRef) {
-              setFormikHelperRef({
+            if (!formikHelperRef.current) {
+              formikHelperRef.current = {
                 setValue: (val) => form.setFieldValue(field.name, val, false),
-              });
+              };
             }
+            return () => {
+              formikHelperRef.current = null;
+            };
           }, [form, field.name]);
+
+          useEffect(() => {
+            if (hasSetInitialThreshold.current) return;
+            const numericValue = Number(field.value);
+            if (Number.isFinite(numericValue) && numericValue > 0) {
+              hasSetInitialThreshold.current = true;
+              return;
+            }
+
+            if (!Array.isArray(graphBuckets) || graphBuckets.length === 0) return;
+
+            const maxBucket = Math.max(...graphBuckets.map((b) => Number(b?.doc_count || 0)), 0);
+            if (maxBucket > 0) {
+              form.setFieldValue(field.name, maxBucket, false);
+              hasSetInitialThreshold.current = true;
+            }
+          }, [field.value, form, field.name, graphBuckets]);
+
           return null;
         }}
       </Field>
@@ -92,7 +138,7 @@ const TriggerGraphPpl = ({
           thresholdValue={thresholdValue}
           thresholdEnum={thresholdEnum}
           keyFieldName={`${fieldPath}thresholdEnum`}
-          valueFieldName={`${fieldPath}thresholdValue`}
+          valueFieldName={`${fieldPath}${thresholdFieldName}`}
           label="Trigger condition"
           flyoutMode={flyoutMode}
         />
@@ -120,18 +166,19 @@ const TriggerGraphPpl = ({
         </>
       )}
 
-      {!flyoutMode && (
-        <>
-          {!hideThresholdControls && <EuiSpacer size="m" />}
-          <PplAlertingVisualGraph
-            key={graphKey}
-            values={monitorValues}
-            thresholdValue={thresholdValue}
-            response={graphResponse}
-            services={{}}
-            onMaxYValueCalculated={handleMaxYValueCalculated}
-          />
-        </>
+      {errorMessage ? (
+        <EuiText size="s" color="danger" style={{ marginTop: '8px' }}>
+          {errorMessage}
+        </EuiText>
+      ) : (
+        <PplAlertingVisualGraph
+          key={graphKey}
+          values={monitorValues}
+          thresholdValue={thresholdValue}
+          response={graphResponse}
+          services={{}}
+          onMaxYValueCalculated={handleMaxYValueCalculated}
+        />
       )}
     </div>
   );
@@ -141,11 +188,13 @@ TriggerGraphPpl.propTypes = {
   monitorValues: PropTypes.object,
   response: PropTypes.any,
   thresholdValue: PropTypes.any,
-  thresholdEnum: PropTypes.any,
+  thresholdEnum: PropTypes.oneOfType([PropTypes.array, PropTypes.string, PropTypes.object]),
   fieldPath: PropTypes.string,
   flyoutMode: PropTypes.bool,
   hideThresholdControls: PropTypes.bool,
   showModeSelector: PropTypes.bool,
+  errorMessage: PropTypes.string,
+  thresholdFieldName: PropTypes.string,
 };
 
 export default TriggerGraphPpl;

@@ -4,25 +4,32 @@
  */
 
 import React from 'react';
-import {
-  EuiHorizontalRule,
-  EuiSpacer,
-  EuiBadge,
-  EuiFlexGroup,
-  EuiFlexItem,
-  EuiSmallButtonIcon,
-} from '@elastic/eui';
+import { EuiSpacer, EuiSmallButtonIcon } from '@elastic/eui';
 import ContentPanel from '../../../../components/ContentPanel';
 import _ from 'lodash';
 import AddTriggerButton from '../../components/AddTriggerButton';
 import TriggerEmptyPrompt from '../../components/TriggerEmptyPrompt';
 import { MAX_TRIGGERS } from '../../../MonitorDetails/containers/Triggers/Triggers';
-import { MONITOR_TYPE } from '../../../../utils/constants';
 import monitorToFormik from '../../../CreateMonitor/containers/CreateMonitor/utils/monitorToFormik';
 import { backendErrorNotification, inputLimitText } from '../../../../utils/helpers';
 import EnhancedAccordion from '../../../../components/FeatureAnywhereContextMenu/EnhancedAccordion';
 import { getDataSourceQueryObj } from '../../../../../public/pages/utils/helpers';
 import DefineTriggerPpl from '../DefineTrigger/DefineTriggerPpl';
+
+const build1hSeriesFromTotal = (pplResp, now = Date.now()) => {
+  const HOUR_MS = 60 * 60 * 1000;
+  const total = Number(pplResp?.total ?? pplResp?.datarows?.length ?? 0) || 0;
+  const buckets = [{ key: now - HOUR_MS, doc_count: total }];
+  return {
+    hits: { total: { value: total, relation: 'eq' } },
+    aggregations: {
+      ppl_histogram: { buckets },
+      count_over_time: { buckets },
+      date_histogram: { buckets },
+      combined_value: { buckets },
+    },
+  };
+};
 
 class ConfigureTriggersPpl extends React.Component {
   constructor(props) {
@@ -34,10 +41,7 @@ class ConfigureTriggersPpl extends React.Component {
 
     this.state = {
       executeResponse: null,
-      triggerDeleted: false,
-      addTriggerButton: this.prepareAddTriggerButton(),
-      triggerEmptyPrompt: this.prepareTriggerEmptyPrompt(),
-      currentSubmitCount: 0,
+      previewError: null,
       accordionsOpen,
       TriggerContainer: props.flyoutMode
         ? (p) => <EnhancedAccordion {...p} />
@@ -51,9 +55,10 @@ class ConfigureTriggersPpl extends React.Component {
   }
 
   componentDidUpdate(prevProps) {
-    if (!_.isEqual(prevProps.monitorValues, this.props.monitorValues)) {
-      this.setState({ addTriggerButton: this.prepareAddTriggerButton() });
-      this.setState({ triggerEmptyPrompt: this.prepareTriggerEmptyPrompt() });
+    const prevQuery = _.get(prevProps, 'monitorValues.pplQuery');
+    const nextQuery = _.get(this.props, 'monitorValues.pplQuery');
+    if (prevQuery !== nextQuery) {
+      this.onRunExecute(this.props.monitorValues);
     }
   }
 
@@ -81,24 +86,32 @@ class ConfigureTriggersPpl extends React.Component {
     );
   };
 
-  onRunExecute = (formikValuesArg, triggers = []) => {
+  onRunExecute = (formikValuesArg) => {
     const { httpClient, monitor, notifications } = this.props;
     const formikValues = formikValuesArg || monitorToFormik(monitor);
 
-    const isPpl =
-      monitor?.query_language === 'ppl' ||
-      formikValues?.monitor_mode === 'ppl' ||
-      !!monitor?.ppl_monitor ||
-      !!formikValues?.pplQuery;
+    const baseQuery = formikValues?.pplQuery || monitor?.ppl_monitor?.query || monitor?.query || '';
 
-    if (!isPpl) {
-      this.setState({ executeResponse: null });
-      return;
+    const customCondition =
+      typeof formikValuesArg?.customCondition === 'string'
+        ? formikValuesArg.customCondition.trim()
+        : '';
+
+    let pplQuery = baseQuery;
+    if (customCondition) {
+      const conditionFragment = customCondition.startsWith('|')
+        ? customCondition
+        : `| ${customCondition}`;
+      pplQuery = `${baseQuery} ${conditionFragment}`.trim();
     }
 
-    const pplQuery = formikValues?.pplQuery || monitor?.ppl_monitor?.query || monitor?.query || '';
+    let dataSourceQuery = {};
+    try {
+      dataSourceQuery = getDataSourceQueryObj() || {};
+    } catch (err) {
+      dataSourceQuery = {};
+    }
 
-    const dataSourceQuery = getDataSourceQueryObj();
     httpClient
       .post('/_plugins/_ppl', {
         body: JSON.stringify({ query: pplQuery }),
@@ -107,20 +120,27 @@ class ConfigureTriggersPpl extends React.Component {
       .then((resp) => {
         if (resp.ok) {
           const now = Date.now();
+          const normalized = build1hSeriesFromTotal(resp.resp, now);
           const wrapped = {
             ok: true,
             period_start: now - 60 * 60 * 1000,
             period_end: now,
-            input_results: { results: [resp.resp] },
+            input_results: { results: [normalized] },
             error: null,
           };
-          this.setState({ executeResponse: wrapped });
+          this.setState({ executeResponse: wrapped, previewError: null });
         } else {
-          backendErrorNotification(notifications, 'preview', 'query', resp.resp);
+          this.setState({
+            executeResponse: null,
+            previewError: resp?.resp?.message || 'Incorrect data source or invalid query',
+          });
         }
       })
-      .catch((err) => {
-        console.error('err:', err);
+      .catch(() => {
+        this.setState({
+          executeResponse: null,
+          previewError: 'Incorrect data source or invalid query',
+        });
       });
   };
 
@@ -142,12 +162,13 @@ class ConfigureTriggersPpl extends React.Component {
       submitCount,
       errors,
     } = this.props;
-    const { executeResponse } = this.state;
+    const { executeResponse, previewError } = this.state;
     return (
       <DefineTriggerPpl
         edit={edit}
         triggerArrayHelpers={triggerArrayHelpers}
         executeResponse={executeResponse}
+        previewError={previewError}
         monitor={monitor}
         monitorValues={monitorValues}
         onRun={(fv) => this.onRunExecute(fv || monitorValues)}
@@ -169,17 +190,13 @@ class ConfigureTriggersPpl extends React.Component {
   };
 
   renderTriggers() {
-    const {
-      triggerValues,
-      triggerArrayHelpers,
-      triggerDefinitionsErrors = [],
-      flyoutMode,
-    } = this.props;
-    const { accordionsOpen, currentSubmitCount } = this.state;
+    const { triggerValues, triggerArrayHelpers, flyoutMode } = this.props;
+    const { accordionsOpen } = this.state;
+
     return _.get(triggerValues, 'triggerDefinitions', []).map((trigger, index) => {
       const id = _.get(trigger, 'id', index);
       const TriggerContainer = this.state.TriggerContainer;
-      const triggerErrors = triggerDefinitionsErrors[index] || {};
+
       return (
         <TriggerContainer
           key={id}
@@ -193,7 +210,6 @@ class ConfigureTriggersPpl extends React.Component {
                 color="danger"
                 onClick={() => {
                   triggerArrayHelpers.remove(index);
-                  this.setState({ triggerDeleted: true });
                 }}
               />
             ) : undefined
@@ -204,12 +220,11 @@ class ConfigureTriggersPpl extends React.Component {
               ? () =>
                   this.setState({
                     accordionsOpen: { ...accordionsOpen, [index]: !accordionsOpen[index] },
-                    currentSubmitCount: this.props.submitCount,
                   })
               : undefined
           }
         >
-          {this.renderDefineTrigger(triggerArrayHelpers, index, triggerErrors, currentSubmitCount)}
+          {this.renderDefineTrigger(triggerArrayHelpers, index)}
           <EuiSpacer size="m" />
         </TriggerContainer>
       );
@@ -217,34 +232,30 @@ class ConfigureTriggersPpl extends React.Component {
   }
 
   render() {
-    const { flyoutMode, triggerArrayHelpers, triggerValues, submitCount } = this.props;
-    const { ContentPanelStructure, addTriggerButton, triggerEmptyPrompt } = this.state;
+    const { flyoutMode, triggerValues } = this.props;
+    const { ContentPanelStructure } = this.state;
     const numTriggers = _.get(triggerValues, 'triggerDefinitions', []).length;
     const hasTriggers = numTriggers > 0;
+    const addTriggerButton = this.prepareAddTriggerButton();
+    const triggerEmptyPrompt = this.prepareTriggerEmptyPrompt();
+    const headerActions = !flyoutMode ? addTriggerButton : undefined;
 
     return (
       <ContentPanelStructure
         title={`Triggers (${numTriggers})`}
         titleSize="s"
         bodyStyles={{ padding: 'initial' }}
+        actions={headerActions}
       >
-        {!flyoutMode && <EuiHorizontalRule margin="s" />}
-        {hasTriggers ? (
+        {hasTriggers ? this.renderTriggers() : triggerEmptyPrompt}
+
+        {flyoutMode && (
           <>
-            <EuiFlexGroup justifyContent="flexStart" gutterSize="s" responsive={false}>
-              <EuiFlexItem grow={false}>
-                <EuiBadge>{`${numTriggers} triggers`}</EuiBadge>
-              </EuiFlexItem>
-              <EuiFlexItem grow={false}>{addTriggerButton}</EuiFlexItem>
-            </EuiFlexGroup>
             <EuiSpacer size="m" />
-            {this.renderTriggers()}
+            {addTriggerButton}
           </>
-        ) : (
-          triggerEmptyPrompt
         )}
-        {flyoutMode && <EuiSpacer size="m" />}
-        {flyoutMode && hasTriggers && addTriggerButton}
+
         {!flyoutMode && hasTriggers && (
           <>
             <EuiSpacer size="m" />

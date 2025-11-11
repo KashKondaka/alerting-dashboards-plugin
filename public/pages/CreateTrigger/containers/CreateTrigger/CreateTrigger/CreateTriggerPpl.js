@@ -32,9 +32,9 @@ const DEFAULT_TRIGGER = {
   mode: 'result_set',
   num_results_condition: '>=',
   num_results_value: 1,
-  throttle_enabled: true,
+  throttle_enabled: false,
   suppress: { value: 10, unit: 'minutes' },
-  expires: { value: 7, unit: 'days' },
+  expires: { value: 24, unit: 'hours' },
   actions: [],
 };
 

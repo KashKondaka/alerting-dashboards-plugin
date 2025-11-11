@@ -459,12 +459,24 @@ export const runPPLPreview = async (httpClient, { queryText, dataSourceId } = {}
   const query = { ...(dataSourceQuery?.query || {}) };
   if (dataSourceId) query['dataSourceId'] = dataSourceId;
 
-  const resp = await httpClient.post('/_plugins/_ppl', {
-    body: JSON.stringify({ query: queryText || '' }),
-    query,
-  });
-  if (!resp.ok) throw resp.resp || resp;
-  return resp.resp;
+  try {
+    const resp = await httpClient.post('/_plugins/_ppl', {
+      body: JSON.stringify({ query: queryText || '' }),
+      query,
+    });
+    if (!resp.ok) {
+      return {
+        ok: false,
+        error: resp?.resp?.message || 'Incorrect data source or invalid query',
+      };
+    }
+    return resp.resp;
+  } catch (err) {
+    return {
+      ok: false,
+      error: err?.body?.message || err?.message || 'Incorrect data source or invalid query',
+    };
+  }
 };
 
 export const submitPPL = async ({

@@ -285,6 +285,14 @@ class PplAlertingCreateMonitor extends Component {
         queryText: values.pplQuery || '',
         dataSourceId: values.dataSourceId || landingDataSourceId,
       });
+      if (data?.ok === false) {
+        this.setState({
+          previewError: data.error || 'Incorrect data source or invalid query',
+          previewLoading: false,
+          previewOpen: true,
+        });
+        return;
+      }
       this.setState({
         previewResult: data,
         previewQuery: values.pplQuery || '',
@@ -293,7 +301,7 @@ class PplAlertingCreateMonitor extends Component {
       });
     } catch (e) {
       this.setState({
-        previewError: e?.body?.message || e?.message || 'Preview failed',
+        previewError: e?.body?.message || e?.message || 'Incorrect data source or invalid query',
         previewLoading: false,
         previewOpen: true,
       });

@@ -529,6 +529,15 @@ export class CreateMonitorFlyout extends Component<FlyoutComponentProps, CreateM
                   queryText: values.pplQuery || '',
                   dataSourceId: values.dataSourceId || this.props.dependencies.query.dataset?.dataSource?.id,
                 });
+                if ((data as any)?.ok === false) {
+                  this.setState({
+                    previewError:
+                      (data as any).error || 'Incorrect data source or invalid query',
+                    previewLoading: false,
+                    previewOpen: true,
+                  });
+                  return;
+                }
                 this.setState({
                   previewResult: data,
                   previewQuery: values.pplQuery || '',
@@ -536,7 +545,8 @@ export class CreateMonitorFlyout extends Component<FlyoutComponentProps, CreateM
                   previewOpen: true,
                 });
               } catch (e: any) {
-                const errorMessage = e?.body?.message || e?.message || 'Preview failed';
+                const errorMessage =
+                  e?.body?.message || e?.message || 'Incorrect data source or invalid query';
                 let userFriendlyMessage = errorMessage;
 
                 // Provide user-friendly error messages for common issues
@@ -552,12 +562,6 @@ export class CreateMonitorFlyout extends Component<FlyoutComponentProps, CreateM
                   previewError: userFriendlyMessage,
                   previewLoading: false,
                   previewOpen: true,
-                });
-
-                // Show toast notification for preview errors
-                this.props.services.notifications.toasts.addWarning({
-                  title: 'Query preview failed',
-                  text: userFriendlyMessage,
                 });
               }
             }}

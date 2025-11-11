@@ -142,8 +142,19 @@ export default class PplAlertingMonitorService extends MDSEnabledClientService {
       const resp = await client('transport.request', params);
       return res.ok({ body: { ok: true, resp } });
     } catch (err) {
-      this.logError('Alerting - PplAlertingMonitorService - proxyPPLQuery', err);
-      return res.ok({ body: { ok: false, resp: err?.message ?? err } });
+      if (err?.body?.status === 404 || err?.statusCode === 404) {
+        this.logger.debug('PPL proxy query failed with 404 (likely invalid query or data source)');
+      } else if (err?.body?.status === 400 || err?.statusCode === 400) {
+        this.logger.debug('PPL proxy query returned bad request (suppressing error log)');
+      } else {
+        this.logError('Alerting - PplAlertingMonitorService - proxyPPLQuery', err);
+      }
+      return res.ok({
+        body: {
+          ok: false,
+          resp: err?.body?.message || err?.message || 'Incorrect data source or invalid query',
+        },
+      });
     }
   }
 
