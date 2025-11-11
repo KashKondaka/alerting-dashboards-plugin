@@ -590,7 +590,7 @@ export default class DashboardClassic extends Component {
             onPageChange={this.onPageClick}
             isAlertsFlyout={isAlertsFlyout}
             monitorType={monitorType}
-            alertActions={useUpdatedUx ? actions() : undefined}
+            alertActions={undefined}
             panelStyles={{ padding: perAlertView ? '8px 0px 16px' : '0px 0px 16px' }}
           />
 

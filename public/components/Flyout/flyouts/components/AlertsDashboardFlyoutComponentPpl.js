@@ -19,7 +19,11 @@ import {
 } from '@elastic/eui';
 import { getTime } from '../../../../pages/MonitorDetails/components/MonitorOverview/utils/getOverviewStats';
 import { ALERT_STATE, DEFAULT_EMPTY_DATA } from '../../../../utils/constants';
-import { backendErrorNotification, getSeverityText } from '../../../../utils/helpers';
+import {
+  backendErrorNotification,
+  getSeverityText,
+  getDataSourceId,
+} from '../../../../utils/helpers';
 import { MAX_ALERT_COUNT } from '../../../../pages/Dashboard/utils/constants';
 import { normalizePPLSeverity } from '../../../../pages/Dashboard/utils/pplSeverityUtils';
 import {
@@ -85,11 +89,23 @@ export default class AlertsDashboardFlyoutComponentPpl extends Component {
     this.setState({ loading: true, openResultPopoverId: null });
 
     const { httpClient, notifications, triggerID, monitor_id, dataSourceId } = this.props;
+    const resolvedDataSourceId =
+      dataSourceId !== undefined
+        ? dataSourceId
+        : typeof getDataSourceId === 'function'
+        ? getDataSourceId()
+        : undefined;
 
     const { page, size, sortDirection, sortField, alertState } = this.state;
 
+    const pageSize = size > 0 ? size : DEFAULT_PAGE_SIZE;
+    if (size <= 0) {
+      this.setState({ size: pageSize, loading: false }, () => this.getAlerts());
+      return;
+    }
+
     const query = {
-      from: page * size,
+      from: 0,
       size: MAX_ALERT_COUNT,
       sortField,
       sortDirection,
@@ -99,8 +115,8 @@ export default class AlertsDashboardFlyoutComponentPpl extends Component {
       query.monitorIds = [monitor_id];
     }
 
-    if (dataSourceId) {
-      query.dataSourceId = dataSourceId;
+    if (resolvedDataSourceId !== undefined) {
+      query.dataSourceId = resolvedDataSourceId;
     }
 
     try {
@@ -120,6 +136,10 @@ export default class AlertsDashboardFlyoutComponentPpl extends Component {
 
       const payload = resp.resp || resp;
       const alertsArray = Array.isArray(payload?.alerts_v2) ? payload.alerts_v2 : [];
+      const totalCountRaw = payload?.total_alerts_v2;
+      const totalCount = Number.isFinite(Number(totalCountRaw))
+        ? Number(totalCountRaw)
+        : alertsArray.length;
 
       const stateFilter =
         alertState && alertState !== 'ALL' ? String(alertState).toUpperCase() : undefined;
@@ -159,7 +179,7 @@ export default class AlertsDashboardFlyoutComponentPpl extends Component {
 
       this.setState({
         alerts: sortedAlerts,
-        totalAlerts: sortedAlerts.length,
+        totalAlerts: totalCount,
         loading: false,
       });
     } catch (err) {
@@ -177,7 +197,8 @@ export default class AlertsDashboardFlyoutComponentPpl extends Component {
 
   handleTableChange = ({ page: pageParams = {}, sort = {} }) => {
     const nextPage = pageParams.index ?? this.state.page;
-    const nextSize = pageParams.size ?? this.state.size;
+    const requestedSize = pageParams.size ?? this.state.size;
+    const nextSize = requestedSize > 0 ? requestedSize : DEFAULT_PAGE_SIZE;
     const nextSortField = sort.field ?? this.state.sortField;
     const nextSortDirection = sort.direction ?? this.state.sortDirection;
 
@@ -232,7 +253,11 @@ export default class AlertsDashboardFlyoutComponentPpl extends Component {
 
     const { monitor = {}, monitor_id, monitor_name, trigger_name, start_time } = this.props;
 
-    const displayedAlerts = alerts.slice(page * size, page * size + size);
+    const pageSizeToUse = size > 0 ? size : DEFAULT_PAGE_SIZE;
+    const displayedAlerts = alerts.slice(
+      page * pageSizeToUse,
+      page * pageSizeToUse + pageSizeToUse
+    );
     const firstAlert = alerts[0] || {};
 
     const severity =
@@ -295,7 +320,7 @@ export default class AlertsDashboardFlyoutComponentPpl extends Component {
 
     const pagination = {
       pageIndex: page,
-      pageSize: size,
+      pageSize: pageSizeToUse,
       totalItemCount: totalAlerts,
       pageSizeOptions: [5, 10, 20, 50],
     };

@@ -49,7 +49,7 @@ import { getClient, setDataSource, NotificationService } from '../../services';
 import { backendErrorNotification } from '../../utils/helpers';
 import { MONITOR_TYPE, SEARCH_TYPE } from '../../utils/constants';
 import CustomSteps from '../../pages/CreateMonitor/components/CustomSteps';
-import ConfigureTriggers from '../../pages/CreateTrigger/containers/ConfigureTriggers';
+import ConfigureTriggersPpl from '../../pages/CreateTrigger/containers/ConfigureTriggers/ConfigureTriggersPpl';
 import { QueryEditor } from '../../pages/CreateMonitor/components/QueryEditor';
 import { AlertingDataTable } from '../DataTable';
 import {
@@ -921,9 +921,11 @@ export class CreateMonitorFlyout extends Component<FlyoutComponentProps, CreateM
               isValid,
               dirty,
               setFieldValue,
+              submitCount,
             }) => {
               const safeMonitor = this.buildMonitorForTriggers(values);
               const safeTriggers = _.get(safeMonitor, 'triggers', []);
+              const httpClient = getClient();
 
               return (
                 <>
@@ -956,7 +958,7 @@ export class CreateMonitorFlyout extends Component<FlyoutComponentProps, CreateM
                           children: (
                             <FieldArray name="triggerDefinitions" validateOnChange>
                               {(triggerArrayHelpers) => (
-                                <ConfigureTriggers
+                                <ConfigureTriggersPpl
                                   edit={false}
                                   triggerArrayHelpers={triggerArrayHelpers}
                                   monitor={safeMonitor}
@@ -966,11 +968,13 @@ export class CreateMonitorFlyout extends Component<FlyoutComponentProps, CreateM
                                   triggers={safeTriggers}
                                   triggerValues={values}
                                   isDarkMode={false}
-                                  httpClient={getClient()}
+                                  httpClient={httpClient}
                                   notifications={services.notifications}
                                   notificationService={this.notificationService}
                                   plugins={plugins}
                                   pluginsLoading={pluginsLoading}
+                                  submitCount={submitCount}
+                                  errors={errors}
                                 />
                               )}
                             </FieldArray>
