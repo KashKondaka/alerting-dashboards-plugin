@@ -14,7 +14,6 @@ import {
 } from '@elastic/eui';
 
 import { APP_PATH } from '../../../../utils/constants';
-import { PageHeader } from '../../../../components/PageHeader/PageHeader';
 
 export default class MonitorActions extends Component {
   state = {
@@ -121,7 +120,7 @@ export default class MonitorActions extends Component {
     );
 
     return (
-      <EuiFlexGroup justifyContent="spaceBetween" alignItems="center" gutterSize="s">
+      <EuiFlexGroup alignItems="center" gutterSize="s" responsive={false}>
         <EuiFlexItem grow={false}>
           <EuiPopover
             id="actionsPopover"
@@ -143,15 +142,7 @@ export default class MonitorActions extends Component {
             <EuiContextMenuPanel items={this.getActions()} size="s" />
           </EuiPopover>
         </EuiFlexItem>
-        <PageHeader
-          appRightControls={[
-            {
-              renderComponent: createMonitorControl,
-            },
-          ]}
-        >
-          <EuiFlexItem grow={false}>{createMonitorControl}</EuiFlexItem>
-        </PageHeader>
+        <EuiFlexItem grow={false}>{createMonitorControl}</EuiFlexItem>
       </EuiFlexGroup>
     );
   }

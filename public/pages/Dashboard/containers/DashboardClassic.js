@@ -17,6 +17,7 @@ import {
   EuiFlexGroup,
   EuiButtonGroup,
   EuiTitle,
+  EuiSpacer,
 } from '@elastic/eui';
 import ContentPanel from '../../../components/ContentPanel';
 import DashboardEmptyPrompt from '../components/DashboardEmptyPrompt';
@@ -629,6 +630,9 @@ export default class DashboardClassic extends Component {
     };
 
     const useUpdatedUx = !perAlertView && getUseUpdatedUx();
+    const showInlineActions = useUpdatedUx;
+    // Actions shown next to the toggle (acknowledge/view details, etc.)
+    const inlineActions = actions();
     const shouldShowPagination = !perAlertView && totalAlerts > 0;
 
     return (
@@ -644,38 +648,59 @@ export default class DashboardClassic extends Component {
           title={perAlertView ? 'Alerts' : undefined}
           titleSize={'s'}
           bodyStyles={{ padding: 'initial' }}
-          actions={useUpdatedUx ? undefined : actions()}
+          actions={useUpdatedUx ? undefined : inlineActions}
           panelOptions={{ hideTitleBorder: useUpdatedUx }}
           panelStyles={{ padding: useUpdatedUx && totalAlerts < 1 ? '16px 16px 0px' : '16px' }}
         >
           {!perAlertView && (
             <>
-              <div style={{ padding: '0px 0px 16px' }}>
+              <div
+                style={{
+                  padding: useUpdatedUx ? '16px 16px 0px 16px' : '0px 0px 16px',
+                }}
+              >
                 <EuiFlexGroup
                   alignItems="center"
-                  justifyContent="flexStart"
+                  justifyContent="spaceBetween"
                   gutterSize="s"
                   responsive={false}
                 >
                   <EuiFlexItem grow={false}>
-                    <EuiTitle size="l">
-                      <h1>Alerts by triggers</h1>
-                    </EuiTitle>
+                    <EuiFlexGroup alignItems="center" gutterSize="s" responsive={false}>
+                      <EuiFlexItem grow={false}>
+                        <EuiTitle size="l">
+                          <h1>Alerts by triggers</h1>
+                        </EuiTitle>
+                      </EuiFlexItem>
+                      {showToggle && (
+                        <EuiFlexItem grow={false}>
+                          <EuiButtonGroup
+                            legend="Alert dashboard view"
+                            options={toggleOptions}
+                            idSelected={viewMode}
+                            onChange={onViewModeChange}
+                            buttonSize="compressed"
+                            color="text"
+                            isFullWidth={false}
+                          />
+                        </EuiFlexItem>
+                      )}
+                    </EuiFlexGroup>
                   </EuiFlexItem>
-                  {showToggle && (
+                  {showInlineActions && (
                     <EuiFlexItem grow={false}>
-                      <EuiButtonGroup
-                        legend="Alert dashboard view"
-                        options={toggleOptions}
-                        idSelected={viewMode}
-                        onChange={onViewModeChange}
-                        buttonSize="compressed"
-                        color="text"
-                      />
+                      <EuiFlexGroup gutterSize="s" responsive={false}>
+                        {inlineActions.map((action, idx) => (
+                          <EuiFlexItem key={idx} grow={false}>
+                            {action}
+                          </EuiFlexItem>
+                        ))}
+                      </EuiFlexGroup>
                     </EuiFlexItem>
                   )}
                 </EuiFlexGroup>
               </div>
+              {useUpdatedUx && <EuiSpacer size="m" />}
             </>
           )}
           <DashboardControls
@@ -691,7 +716,13 @@ export default class DashboardClassic extends Component {
             isAlertsFlyout={isAlertsFlyout}
             monitorType={monitorType}
             alertActions={undefined}
-            panelStyles={{ padding: perAlertView ? '8px 0px 16px' : '0px 0px 16px' }}
+            panelStyles={{
+              padding: perAlertView
+                ? '8px 0px 16px'
+                : useUpdatedUx
+                ? '0px 16px 16px'
+                : '0px 0px 16px',
+            }}
           />
 
           <EuiBasicTable
