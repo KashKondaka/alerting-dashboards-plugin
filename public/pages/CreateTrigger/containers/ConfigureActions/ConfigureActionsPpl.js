@@ -172,7 +172,7 @@ class ConfigureActionsPpl extends React.Component {
             type: toChannelType(destination.type),
             description: '',
           }));
-      } else if (response.totalMonitors !== 0) {
+      } else if (response.err) {
         backendErrorNotification(notifications, 'load', 'destinations', response.err);
       }
 
