@@ -50,8 +50,8 @@ import { backendErrorNotification } from '../../utils/helpers';
 import { MONITOR_TYPE, SEARCH_TYPE } from '../../utils/constants';
 import CustomSteps from '../../pages/CreateMonitor/components/CustomSteps';
 import ConfigureTriggers from '../../pages/CreateTrigger/containers/ConfigureTriggers';
-import { QueryEditor } from '../../pages/CreateMonitor/components/QueryEditor';
-import { PplAlertingDataTable } from '../DataTable';
+import { QueryEditor } from '../QueryEditor';
+import { AlertingDataTable } from '../DataTable';
 import {
   runPPLPreview,
   submitPPL,
@@ -625,7 +625,7 @@ export class CreateMonitorFlyout extends Component<FlyoutComponentProps, CreateM
           ) : this.state.previewError ? (
             <EuiCodeBlock isCopyable>{this.state.previewError}</EuiCodeBlock>
           ) : (
-            <PplAlertingDataTable
+            <AlertingDataTable
               pplResponse={this.state.previewResult}
               isLoading={this.state.previewLoading}
               services={this.props.services}

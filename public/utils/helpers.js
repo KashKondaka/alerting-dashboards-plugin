@@ -34,22 +34,9 @@ export const ignoreEscape = (eventHandler) => (event) => {
 
 // A helper function that shows toast messages for backend errors.
 export const backendErrorNotification = (notifications, actionName, objectName, errorMessage) => {
-  // Ensure errorMessage is a string, not an Error object
-  let messageText = errorMessage;
-  if (errorMessage instanceof Error) {
-    messageText = errorMessage.message || String(errorMessage);
-  } else if (typeof errorMessage === 'object') {
-    messageText =
-      errorMessage?.message || errorMessage?.body?.message || JSON.stringify(errorMessage);
-  } else if (errorMessage) {
-    messageText = String(errorMessage);
-  } else {
-    messageText = 'An unknown error occurred';
-  }
-
   notifications.toasts.addDanger({
     title: `Failed to ${actionName} the ${objectName}`,
-    text: messageText,
+    text: errorMessage,
     toastLifeTimeMs: 20000, // the default lifetime for toasts is 10 sec
   });
 };
@@ -77,30 +64,7 @@ export const inputLimitText = (
 };
 
 export async function deleteMonitor(monitor, httpClient, notifications, dataSourceQuery) {
-  const { id, version, viewMode } = monitor;
-  const isPplMonitor =
-    viewMode === 'new' ||
-    monitor.monitor_mode === 'ppl' ||
-    monitor.monitorMode === 'ppl' ||
-    monitor.monitor?.monitor_mode === 'ppl' ||
-    monitor.monitor?.monitorMode === 'ppl' ||
-    monitor.monitor?.ppl_monitor ||
-    monitor.monitor?.monitor_v2?.ppl_monitor;
-
-  if (isPplMonitor) {
-    return httpClient
-      .delete(`../api/alerting/v2/monitors/${id}`, { query: dataSourceQuery?.query })
-      .then((resp) => {
-        if (!resp.ok) {
-          backendErrorNotification(notifications, 'delete', 'monitor', resp.resp);
-        } else {
-          notifications.toasts.addSuccess(`Monitor deleted successfully.`);
-        }
-        return resp;
-      })
-      .catch((err) => err);
-  }
-
+  const { id, version } = monitor;
   const poolType = monitor.item_type === 'composite' ? 'workflows' : 'monitors';
 
   return httpClient

@@ -21,23 +21,11 @@ export const columns = [
     name: 'Monitor name',
     sortable: true,
     textOnly: true,
-    render: (name, item) => {
-      const queryParams = new URLSearchParams();
-      const monitorType = item?.monitor?.type;
-      if (monitorType) {
-        queryParams.set('type', monitorType);
-      }
-      if (item?.viewMode) {
-        queryParams.set('viewMode', item.viewMode);
-      }
-      const queryString = queryParams.toString();
-      const href = `#/monitors/${item.id}${queryString ? `?${queryString}` : ''}`;
-      return (
-        <EuiLink data-test-subj={name} href={href}>
-          {name}
-        </EuiLink>
-      );
-    },
+    render: (name, item) => (
+      <EuiLink data-test-subj={name} href={`#/monitors/${item.id}?type=${item.monitor.type}`}>
+        {name}
+      </EuiLink>
+    ),
   },
   {
     field: 'enabled',

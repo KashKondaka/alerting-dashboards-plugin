@@ -3,5 +3,5 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-export { PplAlertingDataTable } from './PplAlertingDataTable';
+export { AlertingDataTable } from './AlertingDataTable';
 

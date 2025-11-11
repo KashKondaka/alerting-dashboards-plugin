@@ -7,7 +7,6 @@ import _ from 'lodash';
 import querystring from 'querystring';
 
 import { MDSEnabledClientService } from './MDSEnabledClientService';
-import { INDEX } from '../../utils/constants';
 import { isIndexNotFoundError } from './utils/helpers';
 import { DEFAULT_HEADERS, PPL_MONITOR_BASE_API } from './utils/constants';
 
@@ -109,7 +108,7 @@ export default class PplAlertingMonitorService extends MDSEnabledClientService {
   }
 
   normalizeMonitorListQuery(query = {}) {
-    const { from, size, search, sortField, sortDirection, state, dataSourceId, monitorIds } = query;
+    const { from, size, search, sortField, sortDirection, state, dataSourceId } = query;
     const normalized = {};
 
     if (dataSourceId !== undefined) {
@@ -123,11 +122,10 @@ export default class PplAlertingMonitorService extends MDSEnabledClientService {
       const parsedSize = Number(size);
       if (!Number.isNaN(parsedSize)) normalized.size = parsedSize;
     }
-    if (search !== undefined) normalized.search = String(search);
+    if (search) normalized.search = String(search);
     if (sortField) normalized.sortField = String(sortField);
     if (sortDirection) normalized.sortDirection = String(sortDirection);
     if (state) normalized.state = String(state);
-    if (monitorIds !== undefined) normalized.monitorIds = monitorIds;
     return normalized;
   }
 
@@ -171,254 +169,14 @@ export default class PplAlertingMonitorService extends MDSEnabledClientService {
     try {
       const client = this.getClientBasedOnDataSource(context, req);
       const query = this.normalizeMonitorListQuery(req.query);
-      const {
-        from = 0,
-        size = 20,
-        search = '',
-        sortField = 'name',
-        sortDirection = 'asc',
-        state = 'all',
-        dataSourceId,
-        monitorIds,
-      } = query;
-
-      const trimmedSearch = String(search || '').trim();
-      let must = { match_all: {} };
-      if (trimmedSearch) {
-        const escaped = trimmedSearch.split(' ').join('* *');
-        must = {
-          query_string: {
-            fields: [
-              'monitor.name',
-              'ppl_monitor.name',
-              'monitor_v2.ppl_monitor.name',
-              'workflow.name',
-            ],
-            default_operator: 'AND',
-            query: `*${escaped}*`,
-          },
-        };
-      }
-
-      const should = [];
-      const mustList = [must];
-
-      if (monitorIds !== undefined) {
-        const idsArray = Array.isArray(monitorIds)
-          ? monitorIds
-          : typeof monitorIds === 'string' && monitorIds.includes(',')
-          ? monitorIds.split(',').map((id) => id.trim())
-          : [monitorIds];
-        mustList.push({ terms: { _id: idsArray.filter(Boolean) } });
-      }
-
-      if (state !== 'all') {
-        const enabled = state === 'enabled';
-        should.push({ term: { 'monitor.enabled': enabled } });
-        should.push({ term: { 'workflow.enabled': enabled } });
-      }
-
-      const monitorSorts = { name: 'monitor.name.keyword' };
-      const monitorSortPageData = { size: _.defaultTo(size, 1000) };
-      if (monitorSorts[sortField]) {
-        monitorSortPageData.sort = [{ [monitorSorts[sortField]]: sortDirection }];
-        monitorSortPageData.size = _.defaultTo(size, 1000);
-        monitorSortPageData.from = _.defaultTo(from, 0);
-      }
-
-      const searchBody = {
-        seq_no_primary_term: true,
-        version: true,
-        ...monitorSortPageData,
-        query: {
-          bool: {
-            should,
-            minimum_should_match: state !== 'all' ? 1 : 0,
-            must: mustList,
-          },
-        },
-        aggregations: {
-          associated_composite_monitors: {
-            nested: { path: 'workflow.inputs.composite_input.sequence.delegates' },
-            aggs: {
-              monitor_ids: {
-                terms: { field: 'workflow.inputs.composite_input.sequence.delegates.monitor_id' },
-              },
-            },
-          },
-        },
-      };
-
-      const getResponse = await client('transport.request', {
-        method: 'POST',
-        path: `${PPL_MONITOR_BASE_API}/_search`,
-        body: searchBody,
+      const qs = querystring.stringify(query);
+      const resp = await client('transport.request', {
+        method: 'GET',
+        path: `${PPL_MONITOR_BASE_API}${qs ? `?${qs}` : ''}`,
         headers: DEFAULT_HEADERS,
       });
-
-      const allHits = _.get(getResponse, 'hits.hits', []);
-      const filteredHits = allHits.filter((result) => {
-        const id = result._id || '';
-        const monitor = result._source?.monitor || result._source || {};
-        return !id.endsWith('-metadata') && !monitor.metadata;
-      });
-
-      const totalMonitors = filteredHits.length;
-      const monitorKeyValueTuples = filteredHits.map((result) => {
-        const {
-          _id: id,
-          _version: version,
-          _seq_no: ifSeqNo,
-          _primary_term: ifPrimaryTerm,
-          _source,
-        } = result;
-
-        let monitor = _source?.monitor ? _source.monitor : _source || {};
-        const pplMonitor = monitor?.monitor_v2?.ppl_monitor || monitor?.ppl_monitor;
-        if (pplMonitor) {
-          monitor = {
-            ...monitor,
-            ...pplMonitor,
-            monitor_v2: monitor.monitor_v2,
-          };
-        }
-
-        if (!monitor.monitor_type) {
-          monitor.monitor_type = 'query_level';
-        }
-
-        const item_type = monitor.workflow_type || monitor.monitor_type || 'query_level';
-        if (!Array.isArray(monitor.triggers)) monitor.triggers = [];
-
-        const name = monitor.name || id;
-        const enabled = !!monitor.enabled;
-
-        return [id, { id, version, ifSeqNo, ifPrimaryTerm, name, enabled, item_type, monitor }];
-      });
-
-      const monitorMap = new Map(monitorKeyValueTuples);
-      const associatedCompositeMonitorCountMap = {};
-      _.get(
-        getResponse,
-        'aggregations.associated_composite_monitors.monitor_ids.buckets',
-        []
-      ).forEach(({ key, doc_count }) => {
-        associatedCompositeMonitorCountMap[key] = doc_count;
-      });
-      const monitorIdsOutput = [...monitorMap.keys()];
-
-      const aggsOrderData = {};
-      const aggsSorts = {
-        active: 'active',
-        acknowledged: 'acknowledged',
-        errors: 'errors',
-        ignored: 'ignored',
-        lastNotificationTime: 'last_notification_time',
-      };
-      if (aggsSorts[sortField]) aggsOrderData.order = { [aggsSorts[sortField]]: sortDirection };
-
-      const aggsParams = {
-        index: INDEX.ALL_ALERTS,
-        body: {
-          size: 0,
-          query: { terms: { monitor_id: monitorIdsOutput } },
-          aggregations: {
-            uniq_monitor_ids: {
-              terms: { field: 'monitor_id', ...aggsOrderData, size: from + size },
-              aggregations: {
-                active: { filter: { term: { state: 'ACTIVE' } } },
-                acknowledged: { filter: { term: { state: 'ACKNOWLEDGED' } } },
-                errors: { filter: { term: { state: 'ERROR' } } },
-                ignored: {
-                  filter: {
-                    bool: {
-                      filter: { term: { state: 'COMPLETED' } },
-                      must_not: { exists: { field: 'acknowledged_time' } },
-                    },
-                  },
-                },
-                last_notification_time: { max: { field: 'last_notification_time' } },
-                latest_alert: {
-                  top_hits: {
-                    size: 1,
-                    sort: [{ start_time: { order: 'desc' } }],
-                    _source: { includes: ['last_notification_time', 'trigger_name'] },
-                  },
-                },
-              },
-            },
-          },
-        },
-      };
-
-      const esAggsResponse = await client('transport.request', {
-        method: 'POST',
-        path: `/${INDEX.ALL_ALERTS}/_search`,
-        body: aggsParams.body,
-        headers: DEFAULT_HEADERS,
-      });
-
-      const buckets = _.get(esAggsResponse, 'aggregations.uniq_monitor_ids.buckets', []).map(
-        (bucket) => {
-          const {
-            key: id,
-            last_notification_time: { value: lastNotificationTime },
-            ignored: { doc_count: ignored },
-            acknowledged: { doc_count: acknowledged },
-            active: { doc_count: active },
-            errors: { doc_count: errors },
-            latest_alert: {
-              hits: {
-                hits: [
-                  {
-                    _source: { trigger_name: latestAlert },
-                  },
-                ],
-              },
-            },
-          } = bucket;
-          const monitor = monitorMap.get(id);
-          monitorMap.delete(id);
-          return {
-            ...monitor,
-            id,
-            lastNotificationTime,
-            ignored,
-            latestAlert,
-            acknowledged,
-            active,
-            errors,
-            currentTime: Date.now(),
-            associatedCompositeMonitorCnt: associatedCompositeMonitorCountMap[id] || 0,
-          };
-        }
-      );
-
-      const unusedMonitors = [...monitorMap.values()].map((row) => ({
-        ...row,
-        lastNotificationTime: null,
-        ignored: 0,
-        active: 0,
-        acknowledged: 0,
-        errors: 0,
-        latestAlert: '--',
-        currentTime: Date.now(),
-        associatedCompositeMonitorCnt: associatedCompositeMonitorCountMap[row.id] || 0,
-      }));
-
-      let results = _.orderBy(buckets.concat(unusedMonitors), [sortField], [sortDirection]);
-      if (!monitorSorts[sortField]) results = results.slice(from, from + size);
-
-      return res.ok({ body: { ok: true, monitors: results, totalMonitors } });
+      return res.ok({ body: resp });
     } catch (err) {
-      if (isIndexNotFoundError(err)) {
-        return res.ok({
-          body: {
-            ok: false,
-            resp: { totalMonitors: 0, monitors: [], message: 'No monitors created' },
-          },
-        });
-      }
       this.logError('Alerting - PplAlertingMonitorService - getMonitors', err);
       return res.ok({ body: { ok: false, resp: err?.message ?? err } });
     }

@@ -6,14 +6,7 @@
 import React, { Component } from 'react';
 import _ from 'lodash';
 import queryString from 'query-string';
-import {
-  EuiBasicTable,
-  EuiButtonGroup,
-  EuiSpacer,
-  EuiFlexGroup,
-  EuiFlexItem,
-  EuiTitle,
-} from '@elastic/eui';
+import { EuiBasicTable } from '@elastic/eui';
 import AcknowledgeModal from '../../components/AcknowledgeModal';
 import ContentPanel from '../../../../components/ContentPanel';
 import MonitorActions from '../../components/MonitorActions';
@@ -31,7 +24,7 @@ import {
   isDataSourceChanged,
   getDataSourceId,
 } from '../../../utils/helpers';
-import { getUseUpdatedUx, isPplAlertingEnabled } from '../../../../services';
+import { getUseUpdatedUx } from '../../../../services';
 
 const MAX_MONITOR_COUNT = 1000;
 
@@ -43,20 +36,6 @@ export default class Monitors extends Component {
     const { from, size, search, sortField, sortDirection, state } = getURLQueryParams(
       this.props.location
     );
-
-    const pplEnabled = isPplAlertingEnabled();
-
-    let initialViewMode = pplEnabled ? 'new' : 'classic';
-    if (pplEnabled) {
-      try {
-        const stored = localStorage.getItem('alerting_monitors_view_mode');
-        if (stored === 'classic' || stored === 'new') {
-          initialViewMode = stored;
-        }
-      } catch (e) {
-        console.error('Error reading viewMode from localStorage:', e);
-      }
-    }
 
     this.state = {
       alerts: [],
@@ -73,8 +52,6 @@ export default class Monitors extends Component {
       monitorState: state,
       loadingMonitors: true,
       monitorItemsToDelete: undefined,
-      viewMode: initialViewMode, // 'new' or 'classic' - initialized from localStorage
-      pplEnabled,
     };
     this.getMonitors = _.debounce(this.getMonitors.bind(this), 500, { leading: true });
     this.onTableChange = this.onTableChange.bind(this);
@@ -99,34 +76,8 @@ export default class Monitors extends Component {
     this.onClickCancel = this.onClickCancel.bind(this);
     this.resetFilters = this.resetFilters.bind(this);
 
-    // Columns configuration - will be built dynamically based on viewMode
-    this.buildColumns = this.buildColumns.bind(this);
-  }
-
-  getEffectiveViewMode() {
-    const { viewMode, pplEnabled } = this.state;
-    return pplEnabled ? viewMode : 'classic';
-  }
-
-  // Build columns based on view mode
-  buildColumns() {
-    const viewMode = this.getEffectiveViewMode();
-
-    // In "New" mode, hide certain columns
-    // In "Classic" mode, show all columns
-    const HIDDEN_COLS =
-      viewMode === 'new'
-        ? new Set([
-            'Active',
-            'Acknowledged',
-            'Errors',
-            'Ignored',
-            'Associations with composite monitors',
-          ])
-        : new Set();
-
-    return [
-      ...staticColumns.filter((c) => !HIDDEN_COLS.has(c.name)),
+    this.columns = [
+      ...staticColumns,
       {
         name: 'Actions',
         width: '60px',
@@ -172,10 +123,6 @@ export default class Monitors extends Component {
     if (isDataSourceChanged(prevProps, this.props)) {
       this.updateMonitorList();
     }
-    // Refresh monitors when view mode changes
-    if (prevState.viewMode !== this.state.viewMode) {
-      this.updateMonitorList();
-    }
   }
 
   updateMonitorList() {
@@ -197,7 +144,6 @@ export default class Monitors extends Component {
   async getMonitors(from, size, search, sortField, sortDirection, state) {
     this.setState({ loadingMonitors: true });
     try {
-      const effectiveViewMode = this.getEffectiveViewMode();
       const dataSourceId = getDataSourceId();
       const params = { from, size, search, sortField, sortDirection, state, dataSourceId };
       const queryParamsString = queryString.stringify(params);
@@ -207,71 +153,9 @@ export default class Monitors extends Component {
         ...(dataSourceId !== undefined && { dataSourceId }), // Only include dataSourceId if it exists
         ...params, // Other parameters
       };
-
-      // Call different API based on view mode
-      const apiPath =
-        effectiveViewMode === 'classic'
-          ? '../api/alerting/monitors'
-          : '../api/alerting/v2/monitors';
-
-      const response = await httpClient.get(apiPath, { query: extendedParams });
+      const response = await httpClient.get('../api/alerting/monitors', { query: extendedParams });
       if (response.ok) {
-        let monitors = [];
-        let totalMonitors = 0;
-
-        if (response.hits && Array.isArray(response.hits.hits)) {
-          const hits = response.hits.hits;
-          const now = Date.now();
-          monitors = hits.map((h) => {
-            const srcMon = h?._source?.monitor || h?._source || {};
-            const ppl = srcMon?.ppl_monitor || {};
-            const name =
-              (typeof ppl.name === 'string' && ppl.name) ||
-              (typeof srcMon.name === 'string' && srcMon.name) ||
-              h._id ||
-              '';
-            const enabled =
-              typeof ppl.enabled === 'boolean' ? ppl.enabled : Boolean(srcMon.enabled);
-            return {
-              id: h._id,
-              name,
-              enabled,
-              monitor: srcMon,
-              ifSeqNo: h._seq_no,
-              ifPrimaryTerm: h._primary_term,
-              item_type: srcMon.workflow_type || srcMon.monitor_type || MONITOR_TYPE.QUERY_LEVEL,
-              associatedCompositeMonitorCnt: 0,
-              currentTime: now,
-              viewMode: effectiveViewMode,
-            };
-          });
-          totalMonitors = Number(response.hits?.total?.value ?? monitors.length) || 0;
-        } else if (Array.isArray(response.monitors)) {
-          const now = Date.now();
-          monitors = response.monitors.map((m) => {
-            const srcMon = m?.monitor || {};
-            const ppl = srcMon?.ppl_monitor || {};
-            const name =
-              (typeof ppl.name === 'string' && ppl.name) ||
-              (typeof m.name === 'string' && m.name) ||
-              m.id;
-            const enabled = typeof ppl.enabled === 'boolean' ? ppl.enabled : Boolean(m.enabled);
-            return {
-              id: m.id,
-              name,
-              enabled,
-              monitor: srcMon,
-              ifSeqNo: m.ifSeqNo,
-              ifPrimaryTerm: m.ifPrimaryTerm,
-              item_type: srcMon.monitor_type || m.item_type || MONITOR_TYPE.QUERY_LEVEL,
-              associatedCompositeMonitorCnt: m.associatedCompositeMonitorCnt || 0,
-              currentTime: now,
-              viewMode: effectiveViewMode,
-            };
-          });
-          totalMonitors = Number(response.totalMonitors ?? monitors.length) || 0;
-        }
-
+        const { monitors, totalMonitors } = response;
         this.setState({ monitors, totalMonitors });
       } else {
         if (dataSourceId !== undefined) {
@@ -305,133 +189,27 @@ export default class Monitors extends Component {
     this.setState({ page: 0, search: e.target.value });
   }
 
-  async updateMonitor(item, update) {
+  updateMonitor(item, update) {
     const { httpClient, notifications } = this.props;
-    const dataSourceQuery = getDataSourceQueryObj();
-
-    try {
-      const tryGet = async (path) =>
-        httpClient.get(path, dataSourceQuery).catch((err) => ({
-          ok: false,
-          resp: err?.body || err?.message || err,
-        }));
-
-      const preferV2 = this.state.pplEnabled && this.getEffectiveViewMode() === 'new';
-      let detailResp = preferV2
-        ? await tryGet(`../api/alerting/v2/monitors/${item.id}`)
-        : await tryGet(`../api/alerting/monitors/${item.id}`);
-
-      if (!detailResp?.ok) {
-        detailResp = preferV2
-          ? await tryGet(`../api/alerting/monitors/${item.id}`)
-          : await tryGet(`../api/alerting/v2/monitors/${item.id}`);
-      }
-
-      if (!detailResp?.ok) {
-        backendErrorNotification(notifications, 'get', 'monitor', detailResp?.resp);
-        return detailResp;
-      }
-
-      const monitorDetail = detailResp.resp || {};
-      const ifSeqNo = detailResp.ifSeqNo ?? item.ifSeqNo;
-      const ifPrimaryTerm = detailResp.ifPrimaryTerm ?? item.ifPrimaryTerm;
-      const dataSourceId = getDataSourceId();
-
-      const isPplMonitor = Boolean(
-        _.get(monitorDetail, 'monitor_v2.ppl_monitor') ||
-          _.get(monitorDetail, 'monitorV2.ppl_monitor') ||
-          monitorDetail?.ppl_monitor ||
-          monitorDetail?.monitor_mode === 'ppl' ||
-          monitorDetail?.monitorMode === 'ppl' ||
-          (typeof monitorDetail?.query_language === 'string' &&
-            monitorDetail.query_language.toLowerCase() === 'ppl') ||
-          (typeof monitorDetail?.queryLanguage === 'string' &&
-            monitorDetail.queryLanguage.toLowerCase() === 'ppl')
-      );
-
-      const query = {};
-      if (ifSeqNo !== undefined) query.ifSeqNo = ifSeqNo;
-      if (ifPrimaryTerm !== undefined) query.ifPrimaryTerm = ifPrimaryTerm;
-      if (dataSourceId !== undefined) query.dataSourceId = dataSourceId;
-
-      if (isPplMonitor) {
-        const basePplMonitor = _.cloneDeep(
-          _.get(monitorDetail, 'monitor_v2.ppl_monitor') ||
-            _.get(monitorDetail, 'monitorV2.ppl_monitor') ||
-            monitorDetail?.ppl_monitor ||
-            monitorDetail ||
-            {}
-        );
-
-        const cleanedPplMonitor = _.omit({ ...basePplMonitor, ...update }, [
-          'id',
-          '_id',
-          'item_type',
-          'monitor_type',
-          'version',
-          '_version',
-          'ifSeqNo',
-          'ifPrimaryTerm',
-        ]);
-
-        if (Array.isArray(cleanedPplMonitor.triggers)) {
-          cleanedPplMonitor.triggers = cleanedPplMonitor.triggers.map((trigger) =>
-            _.omit(trigger, ['id', 'last_triggered_time', 'last_execution_time'])
-          );
+    const { id, ifSeqNo, ifPrimaryTerm, monitor } = item;
+    const params = { ifSeqNo, ifPrimaryTerm };
+    const dataSourceId = getDataSourceId();
+    const extendedParams = {
+      ...(dataSourceId !== undefined && { dataSourceId }), // Only include dataSourceId if it exists
+      ...params, // Other parameters
+    };
+    return httpClient
+      .put(`../api/alerting/monitors/${id}`, {
+        query: extendedParams,
+        body: JSON.stringify({ ...monitor, ...update }),
+      })
+      .then((resp) => {
+        if (!resp.ok) {
+          backendErrorNotification(notifications, 'update', 'monitor', resp.resp);
         }
-
-        const pplQuery = {
-          ...query,
-        };
-        if (pplQuery.ifSeqNo !== undefined) {
-          pplQuery.if_seq_no = pplQuery.ifSeqNo;
-          delete pplQuery.ifSeqNo;
-        }
-        if (pplQuery.ifPrimaryTerm !== undefined) {
-          pplQuery.if_primary_term = pplQuery.ifPrimaryTerm;
-          delete pplQuery.ifPrimaryTerm;
-        }
-
-        return httpClient
-          .put(`../api/alerting/v2/monitors/${item.id}`, {
-            query: pplQuery,
-            body: JSON.stringify({ ppl_monitor: cleanedPplMonitor }),
-          })
-          .then((resp) => {
-            if (!resp.ok) {
-              backendErrorNotification(notifications, 'update', 'monitor', resp.resp);
-            }
-            return resp;
-          })
-          .catch((err) => err);
-      }
-
-      const legacyPayload = _.omit({ ...monitorDetail, ...update }, [
-        'id',
-        '_id',
-        'item_type',
-        'currentTime',
-        'version',
-        '_version',
-        'ifSeqNo',
-        'ifPrimaryTerm',
-      ]);
-
-      return httpClient
-        .put(`../api/alerting/monitors/${item.id}`, {
-          query,
-          body: JSON.stringify(legacyPayload),
-        })
-        .then((resp) => {
-          if (!resp.ok) {
-            backendErrorNotification(notifications, 'update', 'monitor', resp.resp);
-          }
-          return resp;
-        })
-        .catch((err) => err);
-    } catch (err) {
-      return err;
-    }
+        return resp;
+      })
+      .catch((err) => err);
   }
 
   async updateMonitors(items, update) {
@@ -449,18 +227,18 @@ export default class Monitors extends Component {
 
   async deleteMonitors(items) {
     const { httpClient, notifications } = this.props;
-
     const arrayOfPromises = items.map((item) =>
       deleteMonitor(item, httpClient, notifications, getDataSourceQueryObj()).catch(
         (error) => error
       )
     );
 
-    await Promise.all(arrayOfPromises);
-    // TODO: Show which values failed, succeeded, etc.
-    const { page, size, search, sortField, sortDirection, monitorState } = this.state;
-    await this.getMonitors(page * size, size, search, sortField, sortDirection, monitorState);
-    this.setState({ selectedItems: [] });
+    return Promise.all(arrayOfPromises).then((values) => {
+      // TODO: Show which values failed, succeeded, etc.
+      const { page, size, search, sortField, sortDirection, monitorState } = this.state;
+      this.getMonitors(page * size, size, search, sortField, sortDirection, monitorState);
+      this.setState({ selectedItems: [] });
+    });
   }
 
   async onClickAcknowledge(item) {
@@ -507,13 +285,7 @@ export default class Monitors extends Component {
     const {
       selectedItems: [{ id }],
     } = this.state;
-    if (id) {
-      const params = new URLSearchParams({ action: MONITOR_ACTIONS.EDIT_MONITOR });
-      if (this.state.pplEnabled && this.getEffectiveViewMode() === 'new') {
-        params.set('viewMode', 'new');
-      }
-      this.props.history.push(`/monitors/${id}?${params.toString()}`);
-    }
+    if (id) this.props.history.push(`/monitors/${id}?action=${MONITOR_ACTIONS.EDIT_MONITOR}`);
   }
 
   onClickEnable(item) {
@@ -676,9 +448,6 @@ export default class Monitors extends Component {
     };
 
     const useUpdatedUx = getUseUpdatedUx();
-    const { viewMode, pplEnabled } = this.state;
-    const effectiveViewMode = this.getEffectiveViewMode();
-
     const monitorActions = (
       <MonitorActions
         isEditDisabled={selectedItems.length !== 1}
@@ -688,20 +457,8 @@ export default class Monitors extends Component {
         onBulkDisable={this.onBulkDisable}
         onBulkDelete={this.onBulkDelete}
         onClickEdit={this.onClickEdit}
-        viewMode={effectiveViewMode}
       />
     );
-
-    const toggleButtons = [
-      {
-        id: 'new',
-        label: 'New',
-      },
-      {
-        id: 'classic',
-        label: 'Classic',
-      },
-    ];
 
     return (
       <>
@@ -710,46 +467,8 @@ export default class Monitors extends Component {
           bodyStyles={{ padding: 'initial' }}
           title={useUpdatedUx ? undefined : 'Monitors'}
           panelOptions={{ hideTitleBorder: useUpdatedUx }}
-          panelStyles={{ padding: useUpdatedUx ? '0px' : '16px' }}
+          panelStyles={{ padding: useUpdatedUx && totalMonitors < 1 ? '16px 16px 0px' : '16px' }}
         >
-          {useUpdatedUx && pplEnabled && (
-            <>
-              <div style={{ padding: '16px 16px 0px 16px' }}>
-                <EuiFlexGroup alignItems="center" justifyContent="spaceBetween" responsive={false}>
-                  <EuiFlexItem grow={false}>
-                    <EuiFlexGroup alignItems="center" gutterSize="m" responsive={false}>
-                      <EuiFlexItem grow={false}>
-                        <EuiTitle size="l">
-                          <h1>Monitors</h1>
-                        </EuiTitle>
-                      </EuiFlexItem>
-                      <EuiFlexItem grow={false}>
-                        <EuiButtonGroup
-                          legend="Monitor view toggle"
-                          options={toggleButtons}
-                          idSelected={viewMode}
-                          onChange={(id) => {
-                            this.setState({ viewMode: id });
-                            // Persist viewMode to localStorage so MonitorDetails can use it
-                            try {
-                              localStorage.setItem('alerting_monitors_view_mode', id);
-                            } catch (e) {
-                              console.error('Error saving viewMode to localStorage:', e);
-                            }
-                          }}
-                          buttonSize="compressed"
-                          color="text"
-                          isFullWidth={false}
-                        />
-                      </EuiFlexItem>
-                    </EuiFlexGroup>
-                  </EuiFlexItem>
-                  <EuiFlexItem grow={false}>{monitorActions}</EuiFlexItem>
-                </EuiFlexGroup>
-              </div>
-              <EuiSpacer size="m" />
-            </>
-          )}
           <MonitorControls
             activePage={page}
             pageCount={Math.ceil(totalMonitors / size) || 1}
@@ -758,7 +477,7 @@ export default class Monitors extends Component {
             onSearchChange={this.onSearchChange}
             onStateChange={this.onMonitorStateChange}
             onPageClick={this.onPageClick}
-            monitorActions={null}
+            monitorActions={useUpdatedUx ? monitorActions : null}
           />
 
           {showAcknowledgeModal && (
@@ -770,42 +489,38 @@ export default class Monitors extends Component {
             />
           )}
 
-          <div style={{ padding: useUpdatedUx ? '0px 16px 16px 16px' : '0px' }}>
-            <EuiBasicTable
-              columns={this.buildColumns()}
-              hasActions={true}
-              isSelectable={true}
-              /*
-               * EUI doesn't let you manually control the selectedItems, so we have to use the itemId for now
-               * If using monitor ID, doesn't correctly update selectedItems when doing certain bulk actions, because the ID is the same
-               * If using monitor ID + monitor version, it works for everything except Acknowledge, because Acknowledge isn't updating the monitor document
-               * So the best approach for now is to set a currentTime on API response for the table to use as part of itemId,
-               * and whenever new monitors are fetched from the server, we should be deselecting all monitors
-               * */
-              itemId={this.getItemId}
-              items={monitors}
-              noItemsMessage={
-                <MonitorEmptyPrompt
-                  filterIsApplied={filterIsApplied}
-                  loading={loadingMonitors}
-                  resetFilters={this.resetFilters}
-                />
-              }
-              onChange={this.onTableChange}
-              pagination={pagination}
-              selection={selection}
-              sorting={sorting}
-            />
-          </div>
+          <EuiBasicTable
+            columns={this.columns}
+            hasActions={true}
+            isSelectable={true}
+            /*
+             * EUI doesn't let you manually control the selectedItems, so we have to use the itemId for now
+             * If using monitor ID, doesn't correctly update selectedItems when doing certain bulk actions, because the ID is the same
+             * If using monitor ID + monitor version, it works for everything except Acknowledge, because Acknowledge isn't updating the monitor document
+             * So the best approach for now is to set a currentTime on API response for the table to use as part of itemId,
+             * and whenever new monitors are fetched from the server, we should be deselecting all monitors
+             * */
+            itemId={this.getItemId}
+            items={monitors}
+            noItemsMessage={
+              <MonitorEmptyPrompt
+                filterIsApplied={filterIsApplied}
+                loading={loadingMonitors}
+                resetFilters={this.resetFilters}
+              />
+            }
+            onChange={this.onTableChange}
+            pagination={pagination}
+            selection={selection}
+            sorting={sorting}
+          />
         </ContentPanel>
         {monitorItemsToDelete && (
           <DeleteMonitorModal
             monitors={monitorItemsToDelete}
             httpClient={this.props.httpClient}
             closeDeleteModal={() => this.setState({ monitorItemsToDelete: undefined })}
-            onClickDelete={async () => {
-              await this.deleteMonitors(this.state.monitorItemsToDelete);
-            }}
+            onClickDelete={() => this.deleteMonitors(this.state.monitorItemsToDelete)}
           />
         )}
       </>

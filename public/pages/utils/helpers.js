@@ -7,38 +7,26 @@ import React from 'react';
 import { getDataSourceEnabled, getDataSource, getAssistantClient } from '../../services/services';
 import _ from 'lodash';
 import { ShowAlertComments } from '../../components/Comments/ShowAlertComments';
-import {
+import { 
   COMMENTS_ENABLED_SETTING,
   SUMMARY_AGENT_CONFIG_ID,
-  LOG_PATTERN_SUMMARY_AGENT_CONFIG_ID,
-} from './constants';
+  LOG_PATTERN_SUMMARY_AGENT_CONFIG_ID
+ } from './constants';
 
 export function dataSourceEnabled() {
-  try {
-    return !!getDataSourceEnabled?.()?.enabled;
-  } catch (err) {
-    return false;
-  }
+  return getDataSourceEnabled()?.enabled;
 }
 
 export function getDataSourceQueryObj() {
-  try {
-    if (!dataSourceEnabled()) return undefined;
-    const dataSource = getDataSource?.();
-    const dataSourceId = dataSource?.dataSourceId;
-    return dataSourceId ? { query: { dataSourceId } } : undefined;
-  } catch (err) {
-    return undefined;
-  }
+  const dataSourceQuery = dataSourceEnabled()
+    ? { dataSourceId: getDataSource()?.dataSourceId }
+    : undefined;
+  return dataSourceQuery ? { query: dataSourceQuery } : undefined;
 }
 
 export function getDataSourceId() {
-  try {
-    if (!dataSourceEnabled()) return undefined;
-    return getDataSource?.()?.dataSourceId;
-  } catch (err) {
-    return undefined;
-  }
+  const dataSourceId = dataSourceEnabled() ? getDataSource()?.dataSourceId : undefined;
+  return dataSourceId;
 }
 
 export function isDataSourceChanged(prevProps, currProps) {
@@ -48,17 +36,7 @@ export function isDataSourceChanged(prevProps, currProps) {
 }
 
 export function getURL(url, dataSourceId) {
-  if (!dataSourceEnabled()) return url;
-  const id =
-    dataSourceId ??
-    (() => {
-      try {
-        return getDataSource?.()?.dataSourceId;
-      } catch {
-        return undefined;
-      }
-    })();
-  return id ? `${url}&dataSourceId=${id}` : url;
+  return dataSourceEnabled() ? `${url}&dataSourceId=${dataSourceId}` : url;
 }
 
 export function parseQueryStringAndGetDataSource(queryString) {
@@ -72,13 +50,7 @@ export function parseQueryStringAndGetDataSource(queryString) {
 }
 
 export function constructUrlFromDataSource(url) {
-  if (!dataSourceEnabled()) return url;
-  try {
-    const id = getDataSource?.()?.dataSourceId;
-    return id ? `${url}&dataSourceId=${id}` : url;
-  } catch {
-    return url;
-  }
+  return dataSourceEnabled() ? `${url}&dataSourceId=${getDataSource()?.dataSourceId}` : url;
 }
 
 export const appendCommentsAction = (columns, httpClient) => {
@@ -100,15 +72,19 @@ export const appendCommentsAction = (columns, httpClient) => {
   return columns;
 };
 
-export async function getIsAgentConfigured(dataSourceId) {
+export async function getIsAgentConfigured(dataSourceId){
   const assistantClient = getAssistantClient();
-  try {
+  try{
     const res = await assistantClient.agentConfigExists(
-      [SUMMARY_AGENT_CONFIG_ID, LOG_PATTERN_SUMMARY_AGENT_CONFIG_ID],
+      [
+        SUMMARY_AGENT_CONFIG_ID,
+        LOG_PATTERN_SUMMARY_AGENT_CONFIG_ID,
+      ],
       { dataSourceId: dataSourceId }
     );
     return res.exists;
-  } catch (e) {
+  }
+  catch(e){
     console.error('Error while checking if agent is configured:', e);
     return false;
   }
