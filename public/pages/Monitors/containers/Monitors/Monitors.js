@@ -173,6 +173,8 @@ export default class Monitors extends Component {
       this.updateMonitorList();
     }
     if (prevState.viewMode !== this.state.viewMode) {
+      // Clear monitors immediately to prevent flash of old view's monitors
+      this.setState({ monitors: [], totalMonitors: 0, selectedItems: [] });
       this.updateMonitorList();
     }
   }
