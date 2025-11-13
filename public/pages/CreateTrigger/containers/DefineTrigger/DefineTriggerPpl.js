@@ -177,6 +177,15 @@ class DefineTriggerPpl extends Component {
                   if (!isNaN(numValue) && numValue >= 10000) {
                     return 'Value cannot be greater than or equal to 10000.';
                   }
+                  if (value !== null && value !== undefined && value !== '') {
+                    const strValue = String(value).trim();
+                    if (strValue.startsWith('-')) {
+                      return 'Value cannot be negative.';
+                    }
+                    if (!isNaN(numValue) && numValue < 0) {
+                      return 'Value cannot be negative.';
+                    }
+                  }
                 }
               }}
             >
