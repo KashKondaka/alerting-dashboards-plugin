@@ -629,7 +629,7 @@ export const formatDuration = (minutes) => {
     const remainingMinutes = totalMinutes % MINUTES_PER_DAY;
 
     if (remainingMinutes === 0) {
-      return `${days} ${days === 1 ? 'd' : 'd'}`;
+      return `${days} d`;
     }
 
     // If remaining minutes >= 60, convert to hours
@@ -637,16 +637,12 @@ export const formatDuration = (minutes) => {
       const hours = Math.floor(remainingMinutes / 60);
       const mins = remainingMinutes % 60;
       if (mins === 0) {
-        return `${days} ${days === 1 ? 'd' : 'd'} ${hours} ${hours === 1 ? 'hr' : 'hr'}`;
+        return `${days} d ${hours} hr`;
       }
-      return `${days} ${days === 1 ? 'd' : 'd'} ${hours} ${hours === 1 ? 'hr' : 'hr'} ${mins} ${
-        mins === 1 ? 'min' : 'min'
-      }`;
+      return `${days} d ${hours} hr ${mins} min`;
     }
 
-    return `${days} ${days === 1 ? 'd' : 'd'} ${remainingMinutes} ${
-      remainingMinutes === 1 ? 'min' : 'min'
-    }`;
+    return `${days} d ${remainingMinutes} min`;
   }
 
   // If >= 60 minutes, convert to hours
@@ -659,7 +655,7 @@ export const formatDuration = (minutes) => {
       return `${hours} ${hours === 1 ? 'hour' : 'hours'}`;
     }
 
-    return `${hours} ${hours === 1 ? 'hr' : 'hr'} ${mins} ${mins === 1 ? 'min' : 'min'}`;
+    return `${hours} hr ${mins} min`;
   }
 
   // Less than 60 minutes, return as minutes

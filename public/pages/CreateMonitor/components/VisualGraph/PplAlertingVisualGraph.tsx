@@ -95,7 +95,7 @@ const processPPLResponseToChartData = (response: any): ChartData | null => {
 
       // Only include valid timestamps and counts
       // Allow count to be 0 (empty buckets) but require valid timestamp
-      if (Number.isFinite(x) && Number.isFinite(count) && x > 0 && !isNaN(x)) {
+      if (Number.isFinite(x) && Number.isFinite(count) && x > 0) {
         return { x, y: count };
       }
       
@@ -323,7 +323,7 @@ export const PplAlertingVisualGraph: React.FC<PplAlertingVisualGraphProps> = ({
 
   const lineAnnotationStyle = {
     line: {
-      stroke: 'euiThemeVars.euiColorDanger',
+      stroke: euiThemeVars.euiColorDanger,
       strokeWidth: 2,
       opacity: 0.8,
       dash: [5, 5],
@@ -339,8 +339,7 @@ export const PplAlertingVisualGraph: React.FC<PplAlertingVisualGraphProps> = ({
   };
 
   const formatYValue = (value: number) => {
-    if (typeof value !== 'number' || isNaN(value)) return '\u00A0';
-    if (value <= 0) return '\u00A0';
+    if (typeof value !== 'number' || isNaN(value) || value <= 0) return '\u00A0';
     return value.toLocaleString();
   };
 
