@@ -349,11 +349,9 @@ export const makeAlertingV2Service = (httpClient) => {
       return r.resp;
     },
 
-    updateMonitor: async (id, body, { ifSeqNo, ifPrimaryTerm, dataSourceId } = {}) => {
+    updateMonitor: async (id, body, { dataSourceId } = {}) => {
       const query = withDataSource();
       if (dataSourceId) query['dataSourceId'] = dataSourceId;
-      if (Number.isFinite(ifSeqNo)) query['if_seq_no'] = ifSeqNo;
-      if (Number.isFinite(ifPrimaryTerm)) query['if_primary_term'] = ifPrimaryTerm;
       const r = await httpClient.put(`${base}/monitors/${encodeURIComponent(id)}`, {
         body: JSON.stringify(body),
         query,
@@ -503,11 +501,7 @@ export const submitPPL = async ({
 
   try {
     if (edit && monitorToEdit?._id) {
-      const seqNo = monitorToEdit?._seq_no;
-      const primary = monitorToEdit?._primary_term;
       await api.updateMonitor(monitorToEdit._id, body, {
-        ifSeqNo: seqNo,
-        ifPrimaryTerm: primary,
         dataSourceId,
       });
       setSubmitting(false);
