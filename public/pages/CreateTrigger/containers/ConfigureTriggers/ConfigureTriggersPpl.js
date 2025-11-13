@@ -54,14 +54,6 @@ class ConfigureTriggersPpl extends React.Component {
     this.onRunExecute(this.props.monitorValues);
   }
 
-  componentDidUpdate(prevProps) {
-    const prevQuery = _.get(prevProps, 'monitorValues.pplQuery');
-    const nextQuery = _.get(this.props, 'monitorValues.pplQuery');
-    if (prevQuery !== nextQuery) {
-      this.onRunExecute(this.props.monitorValues);
-    }
-  }
-
   prepareAddTriggerButton = () => {
     const { monitorValues, triggerArrayHelpers, triggerValues } = this.props;
     const disableAddTriggerButton =

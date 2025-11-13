@@ -479,9 +479,31 @@ class DefineTriggerPpl extends Component {
           <EuiSpacer size="m" />
           <div style={widthStyle}>
             <EuiPanel paddingSize="none" style={{ padding: '18px 24px 24px', borderRadius: '8px' }}>
-              <EuiText size="s" style={{ marginLeft: 4, marginBottom: 4 }}>
-                <strong>Results</strong>
-              </EuiText>
+              <EuiFlexGroup
+                justifyContent="spaceBetween"
+                alignItems="center"
+                gutterSize="s"
+                responsive={false}
+              >
+                <EuiFlexItem grow={false}>
+                  <EuiText size="s" style={{ marginLeft: 4, marginBottom: 4 }}>
+                    <strong>Results</strong>
+                  </EuiText>
+                </EuiFlexItem>
+                <EuiFlexItem grow={false}>
+                  <EuiButton
+                    size="s"
+                    onClick={() => {
+                      if (typeof onRun === 'function') {
+                        onRun(monitorValues);
+                      }
+                    }}
+                    data-test-subj="updateTriggerGraphButton"
+                  >
+                    Update
+                  </EuiButton>
+                </EuiFlexItem>
+              </EuiFlexGroup>
               <TriggerGraphPpl
                 monitorValues={monitorValues}
                 response={
