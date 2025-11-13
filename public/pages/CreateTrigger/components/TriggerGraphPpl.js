@@ -56,13 +56,6 @@ const TriggerGraphPpl = ({
   );
 
   const graphBuckets = useMemo(() => {
-    console.log('[TriggerGraphPpl.graphBuckets] Processing response:', {
-      hasResponse: !!response,
-      hasAggregations: !!response?.aggregations,
-      aggregationsKeys: response?.aggregations ? Object.keys(response.aggregations) : [],
-      responseKeys: response ? Object.keys(response) : [],
-    });
-
     // Try common agg names. If still empty, tolerate total-only responses by faking a flat line.
     let buckets =
       _.get(response, 'aggregations.date_histogram.buckets') ||
@@ -72,32 +65,14 @@ const TriggerGraphPpl = ({
       _.get(response, 'aggregations.ppl_histogram.buckets') ||
       [];
 
-    console.log('[TriggerGraphPpl.graphBuckets] Extracted buckets:', {
-      buckets,
-      bucketsLength: buckets?.length,
-      isArray: Array.isArray(buckets),
-      bucketDetails: buckets?.map((b) => ({
-        key: b.key,
-        key_as_string: b.key_as_string,
-        doc_count: b.doc_count,
-        allKeys: Object.keys(b),
-      })),
-    });
-
     // Only synthesize a placeholder when the response truly has no agg data.
     const shouldSynthesizeBuckets = !response || !response.aggregations;
-    console.log('[TriggerGraphPpl.graphBuckets] Should synthesize:', {
-      shouldSynthesizeBuckets,
-      hasBuckets: buckets && buckets.length > 0,
-    });
 
     if ((!buckets || buckets.length === 0) && shouldSynthesizeBuckets) {
       const now = Date.now();
       buckets = [{ key: now, doc_count: 0 }];
-      console.log('[TriggerGraphPpl.graphBuckets] Synthesized placeholder bucket:', buckets);
     }
 
-    console.log('[TriggerGraphPpl.graphBuckets] Final buckets to return:', buckets);
     return buckets || [];
   }, [response]);
 
@@ -118,13 +93,6 @@ const TriggerGraphPpl = ({
         ppl_histogram: { buckets: graphBuckets },
       },
     };
-
-    console.log('[TriggerGraphPpl.graphResponse] Created graph response:', {
-      graphResponse: response,
-      graphBuckets,
-      graphBucketsLength: graphBuckets?.length,
-      total,
-    });
 
     return response;
   }, [graphBuckets, total]);
