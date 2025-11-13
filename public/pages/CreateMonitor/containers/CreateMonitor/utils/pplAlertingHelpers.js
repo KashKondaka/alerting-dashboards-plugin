@@ -495,8 +495,28 @@ export const submitPPL = async ({
   httpClient,
   dataSourceId,
 }) => {
-  const { setSubmitting } = formikBag;
+  const { setSubmitting, setFieldError } = formikBag;
   const api = makeAlertingV2Service(httpClient);
+
+  // Validate that all triggers have names
+  const triggerDefinitions = _.get(values, 'triggerDefinitions', []);
+  if (Array.isArray(triggerDefinitions) && triggerDefinitions.length > 0) {
+    const triggersWithoutNames = triggerDefinitions
+      .map((trigger, index) => ({ trigger, index }))
+      .filter(({ trigger }) => !trigger?.name || trigger.name.trim() === '');
+    if (triggersWithoutNames.length > 0) {
+      triggersWithoutNames.forEach(({ index }) => {
+        setFieldError(`triggerDefinitions[${index}].name`, 'Trigger name is required.');
+      });
+      setSubmitting(false);
+      notifications.toasts.addDanger({
+        title: `Failed to ${edit ? 'update' : 'create'} the monitor`,
+        text: 'All triggers must have a name. Please fill in the trigger name(s) before continuing.',
+      });
+      return;
+    }
+  }
+
   const body = buildPPLMonitorFromFormik(values);
 
   try {
