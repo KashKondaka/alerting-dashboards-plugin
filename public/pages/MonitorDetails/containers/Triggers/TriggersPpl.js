@@ -5,7 +5,7 @@
 
 import React, { Component } from 'react';
 import PropTypes from 'prop-types';
-import { EuiInMemoryTable } from '@elastic/eui';
+import { EuiInMemoryTable, EuiIcon, EuiToolTip } from '@elastic/eui';
 import _ from 'lodash';
 
 import ContentPanel from '../../../../components/ContentPanel';
@@ -47,6 +47,17 @@ const formatMinutes = (value) =>
     : value
     ? `${value} minute${value === 1 ? '' : 's'}`
     : DEFAULT_EMPTY_DATA;
+
+const getExpireDurationHeader = () => {
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center' }}>
+      Expire duration
+      <EuiToolTip content="Default to 7 days if not specified">
+        <EuiIcon type="iInCircle" size="s" style={{ marginLeft: '4px' }} />
+      </EuiToolTip>
+    </span>
+  );
+};
 
 const normalizeTrigger = (trigger = {}) => ({
   ...trigger,
@@ -175,7 +186,7 @@ class TriggersPpl extends Component {
       },
       {
         field: 'expires_minutes',
-        name: 'Expire duration',
+        name: getExpireDurationHeader(),
         sortable: false,
         truncateText: false,
         width: '12%',
