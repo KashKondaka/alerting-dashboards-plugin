@@ -50,10 +50,10 @@ const formatMinutes = (value) =>
 
 const getExpireDurationHeader = () => {
   return (
-    <span style={{ display: 'inline-flex', alignItems: 'baseline' }}>
+    <span style={{ display: 'inline-flex', alignItems: 'center' }}>
       Expire duration
       <EuiToolTip content="Default to 7 days if not specified">
-        <EuiIcon type="iInCircle" size="s" style={{ marginLeft: '4px', marginTop: '-2px' }} />
+        <EuiIcon type="iInCircle" size="s" style={{ marginLeft: '4px' }} />
       </EuiToolTip>
     </span>
   );
