@@ -5,6 +5,7 @@ exports[`Monitors renders 1`] = `
   <ContentPanel
     actions={
       <MonitorActions
+        hasMonitors={false}
         isDeleteDisabled={true}
         isDisableDisabled={true}
         isEditDisabled={true}
@@ -38,6 +39,7 @@ exports[`Monitors renders 1`] = `
       activePage={0}
       monitorActions={
         <MonitorActions
+          hasMonitors={false}
           isDeleteDisabled={true}
           isDisableDisabled={true}
           isEditDisabled={true}
