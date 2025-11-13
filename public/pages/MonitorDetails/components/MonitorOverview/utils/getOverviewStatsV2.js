@@ -19,10 +19,10 @@ const getTime = (time) => {
 
 const getLastUpdatedHeader = () => {
   return (
-    <span style={{ display: 'inline-flex', alignItems: 'center' }}>
+    <span style={{ display: 'inline-flex', alignItems: 'baseline' }}>
       Last updated
       <EuiToolTip content="Time displayed in UTC">
-        <EuiIcon type="iInCircle" size="s" style={{ marginLeft: '4px' }} />
+        <EuiIcon type="iInCircle" size="s" style={{ marginLeft: '4px', marginTop: '-2px' }} />
       </EuiToolTip>
     </span>
   );

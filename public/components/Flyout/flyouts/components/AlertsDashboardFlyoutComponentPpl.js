@@ -30,6 +30,11 @@ import {
   PplPreviewTable,
   pplRespToDocs,
 } from '../../../../pages/CreateMonitor/components/PplPreviewTable/PplPreviewTable';
+import {
+  getDataSources,
+  getLocalClusterName,
+} from '../../../../pages/CreateMonitor/components/CrossClusterConfigurations/utils/helpers';
+import { getDataSourceQueryObj } from '../../../../pages/utils/helpers';
 
 const DEFAULT_PAGE_SIZE = 5;
 
@@ -41,6 +46,7 @@ export default class AlertsDashboardFlyoutComponentPpl extends Component {
       alerts: [],
       alertState: 'ALL',
       loading: true,
+      localClusterName: undefined,
       page: 0,
       size: DEFAULT_PAGE_SIZE,
       sortDirection: 'desc',
@@ -55,7 +61,17 @@ export default class AlertsDashboardFlyoutComponentPpl extends Component {
   componentDidMount() {
     this._isMounted = true;
     this.getAlerts();
+    this.getLocalClusterName();
   }
+
+  getLocalClusterName = async () => {
+    const { httpClient } = this.props;
+    const dataSourceQuery = getDataSourceQueryObj();
+    const localClusterName = await getLocalClusterName(httpClient, dataSourceQuery);
+    if (this._isMounted) {
+      this.setState({ localClusterName });
+    }
+  };
 
   componentDidUpdate(prevProps, prevState) {
     const watchedStateFields = ['page', 'size', 'alertState', 'sortDirection', 'sortField'];
@@ -243,6 +259,7 @@ export default class AlertsDashboardFlyoutComponentPpl extends Component {
       alerts,
       alertState,
       loading,
+      localClusterName,
       openResultPopoverId,
       page,
       size,
@@ -386,6 +403,14 @@ export default class AlertsDashboardFlyoutComponentPpl extends Component {
               <strong>Monitor</strong>
               <p>
                 <EuiLink href={monitorUrl}>{monitor_name}</EuiLink>
+              </p>
+            </EuiText>
+          </EuiFlexItem>
+          <EuiFlexItem>
+            <EuiText size="s">
+              <strong>Monitor data sources</strong>
+              <p style={{ whiteSpace: 'pre-wrap' }}>
+                {getDataSources(monitor, localClusterName).join('\n')}
               </p>
             </EuiText>
           </EuiFlexItem>
