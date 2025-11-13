@@ -7,7 +7,7 @@ import React from 'react';
 import { EuiSpacer, EuiSmallButtonIcon } from '@elastic/eui';
 import ContentPanel from '../../../../components/ContentPanel';
 import _ from 'lodash';
-import AddTriggerButton from '../../components/AddTriggerButton';
+import AddTriggerButtonPpl from '../../components/AddTriggerButton/AddTriggerButtonPpl';
 import TriggerEmptyPrompt from '../../components/TriggerEmptyPrompt';
 import { MAX_TRIGGERS } from '../../../MonitorDetails/containers/Triggers/Triggers';
 import monitorToFormik from '../../../CreateMonitor/containers/CreateMonitor/utils/monitorToFormik';
@@ -67,11 +67,7 @@ class ConfigureTriggersPpl extends React.Component {
     const disableAddTriggerButton =
       _.get(triggerValues, 'triggerDefinitions', []).length >= MAX_TRIGGERS;
     return (
-      <AddTriggerButton
-        arrayHelpers={triggerArrayHelpers}
-        disabled={disableAddTriggerButton}
-        monitorType={monitorValues.monitor_type}
-      />
+      <AddTriggerButtonPpl arrayHelpers={triggerArrayHelpers} disabled={disableAddTriggerButton} />
     );
   };
 

@@ -8,7 +8,8 @@ import _ from 'lodash';
 import { EuiPanel, EuiText, EuiSpacer } from '@elastic/eui';
 import Action from '../../components/Action';
 import ActionEmptyPrompt from '../../components/ActionEmptyPrompt';
-import AddActionButton from '../../components/AddActionButton';
+import AddActionButtonPpl from '../../components/AddActionButton/AddActionButtonPpl';
+import { getInitialPplActionValues } from '../../components/AddActionButton/utils';
 import { getAllowList } from '../../../Destinations/utils/helpers';
 import {
   MAX_QUERY_RESULT_SIZE,
@@ -20,7 +21,6 @@ import { backendErrorNotification } from '../../../../utils/helpers';
 import { TRIGGER_TYPE } from '../CreateTrigger/utils/constants';
 import { formikToTrigger } from '../CreateTrigger/utils/formikToTrigger';
 import { getChannelOptions, toChannelType } from '../../utils/helper';
-import { getInitialActionValues } from '../../components/AddActionButton/utils';
 import { getDataSourceId } from '../../../utils/helpers';
 import MessagePpl from '../../components/Action/actions/MessagePpl';
 
@@ -36,9 +36,16 @@ const createActionContext = (context, action) => {
   } else {
     console.warn(`Unknown trigger type "${triggerType}".`, context);
   }
+
+  // For v2/PPL monitors, create context with monitorV2 and ppl_trigger
+  // to match the template variables: {{ctx.monitorV2.name}} and {{ctx.ppl_trigger.name}}
   return {
     ctx: {
       ...context,
+      monitorV2: context.monitor, // Map monitor to monitorV2 for v2 template
+      ppl_trigger: { ...trigger }, // Map trigger to ppl_trigger for v2 template
+      // Keep legacy variables for backward compatibility
+      monitor: context.monitor,
       trigger: { ...trigger },
       action,
     },
@@ -186,9 +193,8 @@ class ConfigureActionsPpl extends React.Component {
         loadingDestinations: false,
       });
 
-      const monitorType = _.get(arrayHelpers, 'form.values.monitor_type', MONITOR_TYPE.QUERY_LEVEL);
       const actions = _.get(values, `${fieldPath}actions`, []);
-      const initialActionValues = getInitialActionValues({ monitorType, flyoutMode, actions });
+      const initialActionValues = getInitialPplActionValues({ flyoutMode, actions });
 
       if (
         destinationsAndChannels.length > 0 &&
@@ -419,7 +425,7 @@ class ConfigureActionsPpl extends React.Component {
           )}
           {displayAddActionButton && (
             <div style={flyoutMode ? {} : { paddingBottom: '5px', paddingTop: '20px' }}>
-              <AddActionButton
+              <AddActionButtonPpl
                 arrayHelpers={arrayHelpers}
                 values={values}
                 fieldPath={fieldPath}
