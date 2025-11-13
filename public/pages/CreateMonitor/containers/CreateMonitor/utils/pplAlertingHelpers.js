@@ -570,8 +570,33 @@ export const submitPPL = async ({
     }
   } catch (e) {
     setSubmitting(false);
-    notifications.toasts.addDanger(
-      e?.message || e?.body?.message || `Failed to ${edit ? 'update' : 'create'} the monitor`
-    );
+    // Check if this is a PPL query validation error
+    // The error can be thrown as r.resp (string) or r (object) from makeAlertingV2Service
+    const errorResp =
+      typeof e === 'string' ? e : e?.resp || e?.body?.resp || e?.message || String(e);
+    const isPplQueryError =
+      typeof errorResp === 'string' &&
+      (errorResp.includes('Validation error for PPL Query') ||
+        errorResp.includes('PPL Query') ||
+        errorResp.includes('PPL Monitor'));
+
+    if (isPplQueryError) {
+      // Replace "Data Source Error: [alerting_exception]" with "Invalid Ppl Query:"
+      const formattedError =
+        typeof errorResp === 'string'
+          ? errorResp.replace(
+              /Data Source Error:\s*\[alerting_exception\]\s*/i,
+              'Invalid Ppl Query: '
+            )
+          : errorResp;
+      notifications.toasts.addDanger({
+        title: 'Failed to Create Monitor',
+        text: formattedError,
+      });
+    } else {
+      notifications.toasts.addDanger(
+        e?.message || e?.body?.message || `Failed to ${edit ? 'update' : 'create'} the monitor`
+      );
+    }
   }
 };
