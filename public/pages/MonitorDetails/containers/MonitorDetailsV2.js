@@ -339,7 +339,7 @@ export default class MonitorDetailsV2 extends Component {
       httpClient,
       notifications,
     } = this.props;
-    const { monitor, ifSeqNo, ifPrimaryTerm } = this.state;
+    const { monitor } = this.state;
 
     if (!monitorId || !monitor) {
       return;
@@ -348,77 +348,43 @@ export default class MonitorDetailsV2 extends Component {
     this.setState({ updating: true });
 
     const dataSourceQuery = getDataSourceQueryObj();
-    const queryParams = {
-      ...(dataSourceQuery?.query || {}),
-    };
-
-    if (monitor.monitor_type !== MONITOR_TYPE.DOC_LEVEL) {
-      if (ifSeqNo !== undefined) queryParams.ifSeqNo = ifSeqNo;
-      if (ifPrimaryTerm !== undefined) queryParams.ifPrimaryTerm = ifPrimaryTerm;
-    }
-
-    const isPplMonitor = this.props.viewMode === 'new';
 
     try {
-      let resp;
+      // MonitorDetailsV2 only handles PPL monitors (v2 API)
+      const basePplMonitor = _.cloneDeep(
+        this.getV2Ppl(monitor) || monitor?.ppl_monitor || monitor || {}
+      );
 
-      if (isPplMonitor) {
-        const basePplMonitor = _.cloneDeep(
-          this.getV2Ppl(monitor) || monitor?.ppl_monitor || monitor || {}
+      const cleanedPplMonitor = _.omit({ ...basePplMonitor, ...update }, [
+        'id',
+        '_id',
+        'item_type',
+        'monitor_type',
+        'version',
+        '_version',
+        'ifSeqNo',
+        'ifPrimaryTerm',
+        '_seq_no',
+        '_primary_term',
+        'ui_metadata',
+        'last_update_time',
+        'enabled_time',
+      ]);
+
+      if (Array.isArray(cleanedPplMonitor.triggers)) {
+        cleanedPplMonitor.triggers = cleanedPplMonitor.triggers.map((trigger) =>
+          _.omit(trigger, ['id', 'last_triggered_time', 'last_execution_time'])
         );
-
-        const cleanedPplMonitor = _.omit({ ...basePplMonitor, ...update }, [
-          'id',
-          '_id',
-          'item_type',
-          'monitor_type',
-          'version',
-          '_version',
-          'ifSeqNo',
-          'ifPrimaryTerm',
-          'ui_metadata',
-          'last_update_time',
-          'enabled_time',
-        ]);
-
-        if (Array.isArray(cleanedPplMonitor.triggers)) {
-          cleanedPplMonitor.triggers = cleanedPplMonitor.triggers.map((trigger) =>
-            _.omit(trigger, ['id', 'last_triggered_time', 'last_execution_time'])
-          );
-        }
-
-        const pplQuery = {
-          ...(dataSourceQuery?.query || {}),
-        };
-        if (ifSeqNo !== undefined) pplQuery.if_seq_no = ifSeqNo;
-        if (ifPrimaryTerm !== undefined) pplQuery.if_primary_term = ifPrimaryTerm;
-
-        resp = await httpClient.put(`../api/alerting/v2/monitors/${monitorId}`, {
-          query: pplQuery,
-          body: JSON.stringify({ ppl_monitor: cleanedPplMonitor }),
-        });
-      } else {
-        const legacyPayload = _.omit({ ...monitor, ...update }, [
-          'id',
-          '_id',
-          'item_type',
-          'currentTime',
-          'version',
-          '_version',
-          'ifSeqNo',
-          'ifPrimaryTerm',
-        ]);
-
-        const path =
-          monitor.workflow_type && monitor.workflow_type === MONITOR_TYPE.COMPOSITE_LEVEL
-            ? 'workflows'
-            : 'monitors';
-
-        resp = await httpClient.put(`../api/alerting/${path}/${monitorId}`, {
-          query: queryParams,
-          body: JSON.stringify(legacyPayload),
-        });
       }
+
+      const pplQuery = {
+        ...(dataSourceQuery?.query || {}),
+      };
+
+      const resp = await httpClient.put(`../api/alerting/v2/monitors/${monitorId}`, {
+        query: pplQuery,
+        body: JSON.stringify({ ppl_monitor: cleanedPplMonitor }),
+      });
 
       if (!resp?.ok) {
         backendErrorNotification(notifications, ...actionKeywords, resp?.resp);
@@ -435,6 +401,44 @@ export default class MonitorDetailsV2 extends Component {
       }
       if (resp.ifPrimaryTerm !== undefined) {
         nextState.ifPrimaryTerm = resp.ifPrimaryTerm;
+      }
+
+      // Optimistically update monitor state with the changes
+      if (monitor) {
+        const updatedMonitor = { ...monitor };
+        const v2Ppl = this.getV2Ppl(monitor);
+
+        if (v2Ppl) {
+          // Update the nested ppl_monitor object
+          if (updatedMonitor.monitor_v2) {
+            updatedMonitor.monitor_v2 = {
+              ...updatedMonitor.monitor_v2,
+              ppl_monitor: {
+                ...updatedMonitor.monitor_v2.ppl_monitor,
+                ...update,
+              },
+            };
+          } else if (updatedMonitor.monitorV2) {
+            updatedMonitor.monitorV2 = {
+              ...updatedMonitor.monitorV2,
+              ppl_monitor: {
+                ...updatedMonitor.monitorV2.ppl_monitor,
+                ...update,
+              },
+            };
+          } else if (updatedMonitor.ppl_monitor) {
+            updatedMonitor.ppl_monitor = {
+              ...updatedMonitor.ppl_monitor,
+              ...update,
+            };
+          }
+        }
+        // Also update root level enabled for immediate UI update
+        if (update.enabled !== undefined) {
+          updatedMonitor.enabled = update.enabled;
+        }
+
+        nextState.monitor = updatedMonitor;
       }
 
       // Update state - componentDidUpdate will detect ifSeqNo change and refresh monitor data
