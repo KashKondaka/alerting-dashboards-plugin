@@ -14,7 +14,7 @@ const getTime = (time) => {
   if (!time) return DEFAULT_EMPTY_DATA;
   const momentTime = moment.utc(time);
   if (!momentTime.isValid()) return DEFAULT_EMPTY_DATA;
-  return momentTime.format('MM/DD/YY h:mm a');
+  return momentTime.format('YYYY-MM-DDTHH:mm:ss[Z]');
 };
 
 const getLastUpdatedHeader = () => {
