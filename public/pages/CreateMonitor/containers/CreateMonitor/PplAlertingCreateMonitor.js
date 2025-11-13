@@ -30,6 +30,7 @@ import {
   EuiFieldNumber,
   EuiAccordion,
   EuiHorizontalRule,
+  EuiLink,
 } from '@elastic/eui';
 import CustomSteps from '../../components/CustomSteps';
 import { FORMIK_INITIAL_VALUES, RECOMMENDED_DURATION } from './utils/constants';
@@ -666,7 +667,7 @@ class PplAlertingCreateMonitor extends Component {
         {useLB && !(dateFieldsError && availableDateFields.length === 0) && (
           <>
             <EuiFormRow
-              label="Look back from"
+              label="look back from"
               fullWidth
               style={{ marginLeft: '-6px', maxWidth: '720px' }}
               isInvalid={lbError}
@@ -807,7 +808,13 @@ class PplAlertingCreateMonitor extends Component {
               />
             </EuiFormRow>
             <EuiText size="xs" color="subdued">
-              Use cron expressions for complex schedules
+              <EuiLink
+                href="https://docs.opensearch.org/latest/observing-your-data/alerting/cron/"
+                target="_blank"
+                external
+              >
+                Use cron expressions for complex schedules
+              </EuiLink>
             </EuiText>
 
             <EuiSpacer size="m" />
@@ -840,7 +847,7 @@ class PplAlertingCreateMonitor extends Component {
     } = this.state;
 
     return (
-      <div style={{ padding: '16px' }}>
+      <div className="ppl-alerting-create-monitor" style={{ padding: '16px' }}>
         <Formik
           innerRef={this.formikRef}
           initialValues={initialValues}

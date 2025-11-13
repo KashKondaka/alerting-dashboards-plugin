@@ -35,6 +35,7 @@ import {
   EuiSmallButton,
   EuiLink,
 } from '@elastic/eui';
+import './CreateMonitorFlyout.scss';
 import { Formik, FieldArray } from 'formik';
 import { Provider } from 'react-redux';
 import _ from 'lodash';
@@ -952,7 +953,7 @@ export class CreateMonitorFlyout extends Component<FlyoutComponentProps, CreateM
 
               return (
                 <>
-                  <EuiFlyoutBody>
+                  <EuiFlyoutBody className="create-monitor-flyout">
                     {submitError && (
                       <>
                         <EuiCallOut title="Error creating monitor" color="danger" iconType="alert">

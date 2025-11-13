@@ -24,4 +24,13 @@
   }
 }
 
+// Disable pointer events on form row labels in PPL Alerting Create Monitor
+.ppl-alerting-create-monitor {
+  .euiFormRow__labelWrapper {
+    pointer-events: none !important;
+    cursor: default !important;
+    user-select: none !important;
+  }
+}
+
 

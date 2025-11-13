@@ -26,6 +26,7 @@ import {
 } from '@elastic/eui';
 import { Field, FieldArray } from 'formik';
 import 'brace/mode/plain_text';
+import './DefineTriggerPpl.scss';
 
 import {
   FormikFieldText,
@@ -112,7 +113,14 @@ class DefineTriggerPpl extends Component {
       <Field name={`${fieldPath}mode`}>
         {({ field, form }) => (
           <div style={containerStyle}>
-            <EuiFormRow label="Trigger" fullWidth>
+            <EuiFormRow
+              label="Trigger"
+              fullWidth
+              labelProps={{
+                onClick: (e) => e.preventDefault(),
+                style: { pointerEvents: 'none', cursor: 'default' },
+              }}
+            >
               <EuiRadioGroup
                 options={[
                   { id: 'result_set', label: 'Once' },
@@ -400,7 +408,10 @@ class DefineTriggerPpl extends Component {
         }
         style={{ paddingBottom: '15px', paddingTop: '10px' }}
       >
-        <div style={flyoutMode ? {} : { padding: '0px 20px', paddingTop: '20px' }}>
+        <div
+          className="define-trigger-ppl"
+          style={flyoutMode ? {} : { padding: '0px 20px', paddingTop: '20px' }}
+        >
           <FormikFieldText
             name={`${fieldPath}name`}
             fieldProps={{
@@ -424,7 +435,11 @@ class DefineTriggerPpl extends Component {
                   name={`${fieldPath}severity`}
                   formRow
                   fieldProps={selectFieldProps}
-                  rowProps={{ label: 'Severity level', fullWidth: true, style: { paddingLeft: 0 } }}
+                  rowProps={{
+                    label: 'Severity level',
+                    fullWidth: true,
+                    style: { paddingLeft: 0 },
+                  }}
                   inputProps={{ options: PPL_SEVERITY_OPTIONS, fullWidth: true }}
                 />
               </EuiFlexItem>
@@ -433,7 +448,11 @@ class DefineTriggerPpl extends Component {
                   name={`${fieldPath}type`}
                   formRow
                   fieldProps={selectFieldProps}
-                  rowProps={{ label: 'Type', fullWidth: true, style: { paddingLeft: 0 } }}
+                  rowProps={{
+                    label: 'Type',
+                    fullWidth: true,
+                    style: { paddingLeft: 0 },
+                  }}
                   inputProps={{ options: TYPE_OPTIONS, fullWidth: true }}
                 />
               </EuiFlexItem>
