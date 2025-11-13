@@ -469,22 +469,24 @@ class PplAlertingCreateMonitor extends Component {
         </>
       </EuiFormRow>
 
-      <EuiFormRow>
-        <EuiCheckbox
-          id="useClassicMonitorsPplInline"
-          label={
-            <span>
-              Use classic monitors{' '}
-              <EuiToolTip content="Use pre-existing monitor types available in classic alerts.">
-                <EuiIconTip type="iInCircle" />
-              </EuiToolTip>
-            </span>
-          }
-          checked={values.monitor_mode === 'legacy'}
-          onChange={() => this.handleClassicToggle(setFieldValue)}
-          data-test-subj="useClassicCheckboxPplInline"
-        />
-      </EuiFormRow>
+      {!this.props.edit && (
+        <EuiFormRow>
+          <EuiCheckbox
+            id="useClassicMonitorsPplInline"
+            label={
+              <span>
+                Use classic monitors{' '}
+                <EuiToolTip content="Use pre-existing monitor types available in classic alerts.">
+                  <EuiIconTip type="iInCircle" />
+                </EuiToolTip>
+              </span>
+            }
+            checked={values.monitor_mode === 'legacy'}
+            onChange={() => this.handleClassicToggle(setFieldValue)}
+            data-test-subj="useClassicCheckboxPplInline"
+          />
+        </EuiFormRow>
+      )}
     </>
   );
 
@@ -861,7 +863,7 @@ class PplAlertingCreateMonitor extends Component {
               return null;
             }
 
-            const ClassicToggleHeader = (
+            const ClassicToggleHeader = !edit ? (
               <EuiCheckbox
                 id="useClassicMonitorsHeader"
                 label={
@@ -876,7 +878,7 @@ class PplAlertingCreateMonitor extends Component {
                 onChange={() => this.handleClassicToggle(setFieldValue)}
                 data-test-subj="useClassicCheckboxHeader"
               />
-            );
+            ) : null;
 
             const monitorContextForTriggers = this.buildMonitorForTriggers(values);
             const triggerDefinitions = monitorContextForTriggers.triggers;
@@ -888,9 +890,11 @@ class PplAlertingCreateMonitor extends Component {
                     <h1>{edit ? 'Edit' : 'Create'} monitor</h1>
                   </EuiText>
                   <EuiSpacer />
-                  <EuiFlexGroup justifyContent="spaceBetween" alignItems="center">
-                    <EuiFlexItem grow={false}>{ClassicToggleHeader}</EuiFlexItem>
-                  </EuiFlexGroup>
+                  {ClassicToggleHeader && (
+                    <EuiFlexGroup justifyContent="spaceBetween" alignItems="center">
+                      <EuiFlexItem grow={false}>{ClassicToggleHeader}</EuiFlexItem>
+                    </EuiFlexGroup>
+                  )}
                 </PageHeader>
 
                 <div data-test-subj="pplBranch">

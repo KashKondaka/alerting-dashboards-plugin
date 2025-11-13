@@ -198,7 +198,8 @@ export default class CreateMonitor extends Component {
     const params = new URLSearchParams(search);
     const mode = params.get('mode');
     // Show checkbox if PPL is enabled and we're in classic mode (or no mode specified, which defaults to classic)
-    const showNewToggle = pplEnabled && (mode === 'classic' || !mode);
+    // Hide checkbox when editing monitors
+    const showNewToggle = pplEnabled && (mode === 'classic' || !mode) && !edit;
 
     return (
       <div style={{ padding: '16px' }}>
