@@ -171,5 +171,3 @@ export const PplEditor: React.FC<Props> = ({
     />
   );
 };
-
-
