@@ -27,10 +27,11 @@ export default class MonitorActions extends Component {
       isEnableDisabled,
       isDisableDisabled,
       viewMode = 'classic',
+      hasMonitors = true,
     } = this.props;
     const actions = [];
 
-    if (viewMode === 'classic') {
+    if (viewMode === 'classic' && hasMonitors) {
       actions.push(
         <EuiContextMenuItem
           key="acknowledge"

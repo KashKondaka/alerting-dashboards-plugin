@@ -694,6 +694,7 @@ export default class Monitors extends Component {
         onBulkDelete={this.onBulkDelete}
         onClickEdit={this.onClickEdit}
         viewMode={viewMode}
+        hasMonitors={monitors.length > 0}
         isEnableDisabled={selectedItems.length === 0 || selectedItems.every((item) => item.enabled)}
         isDisableDisabled={
           selectedItems.length === 0 || selectedItems.every((item) => !item.enabled)
