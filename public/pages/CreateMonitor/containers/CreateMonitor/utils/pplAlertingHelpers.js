@@ -515,6 +515,35 @@ export const submitPPL = async ({
       });
       return;
     }
+
+    // Validate that "Number of results" triggers with >= condition don't have value >= 10000
+    const invalidTriggers = triggerDefinitions
+      .map((trigger, index) => ({ trigger, index }))
+      .filter(({ trigger }) => {
+        const type = trigger?.type;
+        const condition = trigger?.num_results_condition;
+        const value = trigger?.num_results_value;
+        return (
+          type === 'number_of_results' &&
+          (condition === '>=' || condition === '>') &&
+          !isNaN(Number(value)) &&
+          Number(value) >= 10000
+        );
+      });
+    if (invalidTriggers.length > 0) {
+      invalidTriggers.forEach(({ index }) => {
+        setFieldError(
+          `triggerDefinitions[${index}].num_results_value`,
+          'Value cannot be greater than or equal to 10000.'
+        );
+      });
+      setSubmitting(false);
+      notifications.toasts.addDanger({
+        title: `Failed to ${edit ? 'update' : 'create'} the monitor`,
+        text: 'Invalid value: "Number of results" triggers with ">=" or ">" condition cannot have a value >= 10000.',
+      });
+      return;
+    }
   }
 
   const body = buildPPLMonitorFromFormik(values);

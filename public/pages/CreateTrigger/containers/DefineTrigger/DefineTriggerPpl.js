@@ -33,7 +33,7 @@ import {
   FormikFieldNumber,
 } from '../../../../components/FormControls';
 import { isInvalid, hasError } from '../../../../utils/validate';
-import { validateTriggerName } from './utils/validation';
+import { validateTriggerName, validateNumResultsValue } from './utils/validation';
 import { OS_NOTIFICATION_PLUGIN } from '../../../../utils/constants';
 import ConfigureActionsPpl from '../ConfigureActions/ConfigureActionsPpl';
 import TriggerGraphPpl from '../../components/TriggerGraphPpl';
@@ -130,6 +130,7 @@ class DefineTriggerPpl extends Component {
 
   renderNumberConditionFields(fieldPath) {
     const widthStyle = this.props.flyoutMode ? {} : SECTION_WIDTH;
+
     return (
       <div style={widthStyle}>
         <EuiFlexGroup gutterSize="s" responsive={false} alignItems="flexEnd">
@@ -143,21 +144,74 @@ class DefineTriggerPpl extends Component {
                 fullWidth: true,
                 style: { paddingLeft: 0 },
               }}
-              inputProps={{ options: NUMBER_OF_RESULTS_OPERATOR_OPTIONS, fullWidth: true }}
+              inputProps={{
+                options: NUMBER_OF_RESULTS_OPERATOR_OPTIONS,
+                fullWidth: true,
+                onChange: (e, field, form) => {
+                  field.onChange(e);
+                  // Trigger validation on the value field when condition changes
+                  setTimeout(() => {
+                    form.validateField(`${fieldPath}num_results_value`);
+                  }, 0);
+                },
+              }}
             />
           </EuiFlexItem>
           <EuiFlexItem>
-            <FormikFieldNumber
+            <Field
               name={`${fieldPath}num_results_value`}
-              formRow
-              rowProps={{
-                label: '',
-                hasEmptyLabelSpace: true,
-                fullWidth: true,
-                style: { paddingLeft: 0 },
+              validate={(value, formValues) => {
+                const type = _.get(formValues, `${fieldPath}type`, 'number_of_results');
+                const condition = _.get(formValues, `${fieldPath}num_results_condition`, '>=');
+
+                if (type === 'number_of_results' && (condition === '>=' || condition === '>')) {
+                  const numValue = Number(value);
+                  if (!isNaN(numValue) && numValue >= 10000) {
+                    return 'Value cannot be greater than or equal to 10000.';
+                  }
+                }
               }}
-              inputProps={{ min: 0, fullWidth: true }}
-            />
+            >
+              {({ field, form, meta }) => (
+                <div style={{ position: 'relative', width: '100%' }}>
+                  <FormikFieldNumber
+                    name={`${fieldPath}num_results_value`}
+                    formRow
+                    fieldProps={{}}
+                    rowProps={{
+                      label: '',
+                      hasEmptyLabelSpace: true,
+                      fullWidth: true,
+                      style: { paddingLeft: 0 },
+                      isInvalid: meta.error ? true : false,
+                      error: undefined,
+                    }}
+                    inputProps={{ min: 0, fullWidth: true, isInvalid: meta.error ? true : false }}
+                  />
+                  {meta.error && (
+                    <div
+                      style={{
+                        position: 'absolute',
+                        top: '100%',
+                        left: 0,
+                        fontSize: '12px',
+                        color: '#D13212',
+                        marginTop: '2px',
+                        lineHeight: '1.5',
+                        whiteSpace: 'nowrap',
+                        pointerEvents: 'none',
+                        zIndex: 10,
+                        maxWidth: '100%',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                      }}
+                    >
+                      {meta.error}
+                    </div>
+                  )}
+                </div>
+              )}
+            </Field>
           </EuiFlexItem>
         </EuiFlexGroup>
       </div>
