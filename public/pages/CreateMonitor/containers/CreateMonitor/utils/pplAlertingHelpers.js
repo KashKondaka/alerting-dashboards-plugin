@@ -8,7 +8,7 @@ import queryString from 'query-string';
 import { FORMIK_INITIAL_VALUES } from './constants';
 import pplAlertingMonitorToFormik from './pplAlertingMonitorToFormik';
 import { buildPPLMonitorFromFormik, pplToV2Schedule } from './pplFormikToMonitor';
-import { MONITOR_TYPE } from '../../../../../utils/constants';
+import { MONITOR_TYPE, DEFAULT_EMPTY_DATA } from '../../../../../utils/constants';
 import { initializeFromQueryParams } from './monitorQueryParams';
 import { backendErrorNotification, getDigitId } from '../../../../../utils/helpers';
 import {
@@ -599,4 +599,69 @@ export const submitPPL = async ({
       );
     }
   }
+};
+
+/**
+ * Formats duration in minutes to a human-readable string
+ * - If >= 60 minutes, converts to hours (e.g., 60 min -> 1 hour, 65 min -> 1 hr 5 min)
+ * - If >= 24 hours (1440 minutes), converts to days (e.g., 1440 min -> 1 d)
+ * @param {number} minutes - Duration in minutes
+ * @returns {string} Formatted duration string
+ */
+export const formatDuration = (minutes) => {
+  if (minutes === null || minutes === undefined || minutes === '') {
+    return DEFAULT_EMPTY_DATA;
+  }
+
+  const totalMinutes = Number(minutes);
+  if (isNaN(totalMinutes) || totalMinutes < 0) {
+    return DEFAULT_EMPTY_DATA;
+  }
+
+  if (totalMinutes === 0) {
+    return '0 minutes';
+  }
+
+  // If >= 24 hours (1440 minutes), convert to days
+  const MINUTES_PER_DAY = 24 * 60;
+  if (totalMinutes >= MINUTES_PER_DAY) {
+    const days = Math.floor(totalMinutes / MINUTES_PER_DAY);
+    const remainingMinutes = totalMinutes % MINUTES_PER_DAY;
+
+    if (remainingMinutes === 0) {
+      return `${days} ${days === 1 ? 'd' : 'd'}`;
+    }
+
+    // If remaining minutes >= 60, convert to hours
+    if (remainingMinutes >= 60) {
+      const hours = Math.floor(remainingMinutes / 60);
+      const mins = remainingMinutes % 60;
+      if (mins === 0) {
+        return `${days} ${days === 1 ? 'd' : 'd'} ${hours} ${hours === 1 ? 'hr' : 'hr'}`;
+      }
+      return `${days} ${days === 1 ? 'd' : 'd'} ${hours} ${hours === 1 ? 'hr' : 'hr'} ${mins} ${
+        mins === 1 ? 'min' : 'min'
+      }`;
+    }
+
+    return `${days} ${days === 1 ? 'd' : 'd'} ${remainingMinutes} ${
+      remainingMinutes === 1 ? 'min' : 'min'
+    }`;
+  }
+
+  // If >= 60 minutes, convert to hours
+  const MINUTES_PER_HOUR = 60;
+  if (totalMinutes >= MINUTES_PER_HOUR) {
+    const hours = Math.floor(totalMinutes / MINUTES_PER_HOUR);
+    const mins = totalMinutes % MINUTES_PER_HOUR;
+
+    if (mins === 0) {
+      return `${hours} ${hours === 1 ? 'hour' : 'hours'}`;
+    }
+
+    return `${hours} ${hours === 1 ? 'hr' : 'hr'} ${mins} ${mins === 1 ? 'min' : 'min'}`;
+  }
+
+  // Less than 60 minutes, return as minutes
+  return `${totalMinutes} ${totalMinutes === 1 ? 'minute' : 'minutes'}`;
 };

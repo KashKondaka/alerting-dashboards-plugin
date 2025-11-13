@@ -99,14 +99,19 @@ export default class MonitorDetailsV2 extends Component {
     const { monitor } = this.state;
     const v2 = this.getV2Ppl(monitor);
     if (!v2) return monitor || {};
+    const lookBackWindowMinutes =
+      v2.look_back_window_minutes ??
+      v2.look_back_window ??
+      monitor?.look_back_window_minutes ??
+      monitor?.look_back_window;
     return {
       ...monitor,
       name: v2.name ?? monitor?.name,
       enabled: typeof v2.enabled === 'boolean' ? v2.enabled : monitor?.enabled,
       triggers: Array.isArray(v2.triggers) ? v2.triggers : monitor?.triggers || [],
       schedule: v2.schedule ?? monitor?.schedule,
-      look_back_window:
-        v2.look_back_window_minutes ?? v2.look_back_window ?? monitor?.look_back_window,
+      look_back_window: lookBackWindowMinutes,
+      look_back_window_minutes: lookBackWindowMinutes,
       query_language: v2.query_language ?? monitor?.query_language,
       query: v2.query ?? monitor?.query,
       description: v2.description ?? monitor?.description,
@@ -137,17 +142,40 @@ export default class MonitorDetailsV2 extends Component {
   }
 
   componentDidUpdate(prevProps, prevState) {
-    if (this.state.monitorVersion !== prevState.monitorVersion && !prevState.loading) {
+    // Refresh monitor when ifSeqNo changes (indicates monitor was updated)
+    // Check if ifSeqNo exists and has changed
+    const ifSeqNoChanged =
+      this.state.ifSeqNo !== undefined &&
+      this.state.ifSeqNo !== prevState.ifSeqNo &&
+      !prevState.loading;
+
+    if (ifSeqNoChanged) {
       this.getMonitor(this.props.match.params.monitorId);
+      return; // Early return to avoid multiple refreshes
     }
 
-    // Refresh monitor when entering edit mode to ensure we have the latest data
+    // Also check monitorVersion as fallback
+    const monitorVersionChanged =
+      this.state.monitorVersion !== prevState.monitorVersion && !prevState.loading;
+
+    if (monitorVersionChanged) {
+      this.getMonitor(this.props.match.params.monitorId);
+      return;
+    }
+
+    // Refresh monitor when entering or exiting edit mode to ensure we have the latest data
     const prevAction = queryString.parse(prevProps.location.search).action;
     const currentAction = queryString.parse(this.props.location.search).action;
-    if (
-      prevAction !== MONITOR_ACTIONS.EDIT_MONITOR &&
-      currentAction === MONITOR_ACTIONS.EDIT_MONITOR
-    ) {
+    const enteringEditMode =
+      prevAction !== MONITOR_ACTIONS.EDIT_MONITOR && currentAction === MONITOR_ACTIONS.EDIT_MONITOR;
+    const exitingEditMode =
+      prevAction === MONITOR_ACTIONS.EDIT_MONITOR &&
+      currentAction !== MONITOR_ACTIONS.EDIT_MONITOR &&
+      !prevState.loading;
+
+    if (enteringEditMode) {
+      this.getMonitor(this.props.match.params.monitorId);
+    } else if (exitingEditMode) {
       this.getMonitor(this.props.match.params.monitorId);
     }
   }
@@ -421,11 +449,8 @@ export default class MonitorDetailsV2 extends Component {
         nextState.ifPrimaryTerm = resp.ifPrimaryTerm;
       }
 
-      this.setState(nextState, () => {
-        if (resp?.version === undefined) {
-          this.getMonitor(monitorId);
-        }
-      });
+      // Update state - componentDidUpdate will detect ifSeqNo change and refresh monitor data
+      this.setState(nextState);
 
       return resp;
     } catch (err) {

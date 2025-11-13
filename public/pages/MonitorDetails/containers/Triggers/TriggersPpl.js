@@ -10,6 +10,7 @@ import _ from 'lodash';
 
 import ContentPanel from '../../../../components/ContentPanel';
 import { DEFAULT_EMPTY_DATA } from '../../../../utils/constants';
+import { formatDuration } from '../../../CreateMonitor/containers/CreateMonitor/utils/pplAlertingHelpers';
 
 const MAX_TRIGGERS = 10;
 
@@ -178,7 +179,7 @@ class TriggersPpl extends Component {
         sortable: false,
         truncateText: false,
         width: '12%',
-        render: (value) => formatMinutes(value),
+        render: (value) => formatDuration(value),
       },
       {
         field: 'throttle_minutes',
@@ -186,7 +187,7 @@ class TriggersPpl extends Component {
         sortable: false,
         truncateText: false,
         width: '12%',
-        render: (value) => formatMinutes(value),
+        render: (value) => formatDuration(value),
       },
     ];
 
