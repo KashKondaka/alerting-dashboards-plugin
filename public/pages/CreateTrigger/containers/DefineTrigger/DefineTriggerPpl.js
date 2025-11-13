@@ -482,7 +482,7 @@ class DefineTriggerPpl extends Component {
               <EuiFlexGroup
                 justifyContent="spaceBetween"
                 alignItems="center"
-                gutterSize="s"
+                gutterSize="none"
                 responsive={false}
               >
                 <EuiFlexItem grow={false}>
@@ -490,7 +490,7 @@ class DefineTriggerPpl extends Component {
                     <strong>Results</strong>
                   </EuiText>
                 </EuiFlexItem>
-                <EuiFlexItem grow={false}>
+                <EuiFlexItem grow={false} style={{ marginLeft: '8px' }}>
                   <EuiButton
                     size="s"
                     onClick={() => {
@@ -499,6 +499,7 @@ class DefineTriggerPpl extends Component {
                       }
                     }}
                     data-test-subj="updateTriggerGraphButton"
+                    compressed
                   >
                     Update
                   </EuiButton>

@@ -56,7 +56,15 @@ const TriggerGraphPpl = ({
   );
 
   const graphBuckets = useMemo(() => {
-    const extracted =
+    console.log('[TriggerGraphPpl.graphBuckets] Processing response:', {
+      hasResponse: !!response,
+      hasAggregations: !!response?.aggregations,
+      aggregationsKeys: response?.aggregations ? Object.keys(response.aggregations) : [],
+      responseKeys: response ? Object.keys(response) : [],
+    });
+
+    // Try common agg names. If still empty, tolerate total-only responses by faking a flat line.
+    let buckets =
       _.get(response, 'aggregations.date_histogram.buckets') ||
       _.get(response, 'aggregations.counts.buckets') ||
       _.get(response, 'aggregations.count_over_time.buckets') ||
@@ -64,17 +72,33 @@ const TriggerGraphPpl = ({
       _.get(response, 'aggregations.ppl_histogram.buckets') ||
       [];
 
-    if (Array.isArray(extracted) && extracted.length > 0) {
-      return extracted;
-    }
+    console.log('[TriggerGraphPpl.graphBuckets] Extracted buckets:', {
+      buckets,
+      bucketsLength: buckets?.length,
+      isArray: Array.isArray(buckets),
+      bucketDetails: buckets?.map((b) => ({
+        key: b.key,
+        key_as_string: b.key_as_string,
+        doc_count: b.doc_count,
+        allKeys: Object.keys(b),
+      })),
+    });
 
-    const shouldSynthesize = !response || !response.aggregations;
-    if (shouldSynthesize) {
+    // Only synthesize a placeholder when the response truly has no agg data.
+    const shouldSynthesizeBuckets = !response || !response.aggregations;
+    console.log('[TriggerGraphPpl.graphBuckets] Should synthesize:', {
+      shouldSynthesizeBuckets,
+      hasBuckets: buckets && buckets.length > 0,
+    });
+
+    if ((!buckets || buckets.length === 0) && shouldSynthesizeBuckets) {
       const now = Date.now();
-      return [{ key: now, doc_count: 0 }];
+      buckets = [{ key: now, doc_count: 0 }];
+      console.log('[TriggerGraphPpl.graphBuckets] Synthesized placeholder bucket:', buckets);
     }
 
-    return extracted || [];
+    console.log('[TriggerGraphPpl.graphBuckets] Final buckets to return:', buckets);
+    return buckets || [];
   }, [response]);
 
   const total = useMemo(
@@ -84,8 +108,8 @@ const TriggerGraphPpl = ({
     [response]
   );
 
-  const graphResponse = useMemo(
-    () => ({
+  const graphResponse = useMemo(() => {
+    const response = {
       hits: total != null ? { total: { value: Number(total) || 0, relation: 'eq' } } : undefined,
       aggregations: {
         count_over_time: { buckets: graphBuckets },
@@ -93,9 +117,17 @@ const TriggerGraphPpl = ({
         date_histogram: { buckets: graphBuckets },
         ppl_histogram: { buckets: graphBuckets },
       },
-    }),
-    [graphBuckets, total]
-  );
+    };
+
+    console.log('[TriggerGraphPpl.graphResponse] Created graph response:', {
+      graphResponse: response,
+      graphBuckets,
+      graphBucketsLength: graphBuckets?.length,
+      total,
+    });
+
+    return response;
+  }, [graphBuckets, total]);
 
   return (
     <div style={{ marginBottom: 0 }}>
@@ -166,20 +198,14 @@ const TriggerGraphPpl = ({
         </>
       )}
 
-      {errorMessage ? (
-        <EuiText size="s" color="danger" style={{ marginTop: '8px' }}>
-          {errorMessage}
-        </EuiText>
-      ) : (
-        <PplAlertingVisualGraph
-          key={graphKey}
-          values={monitorValues}
-          thresholdValue={thresholdValue}
-          response={graphResponse}
-          services={{}}
-          onMaxYValueCalculated={handleMaxYValueCalculated}
-        />
-      )}
+      <PplAlertingVisualGraph
+        key={graphKey}
+        values={monitorValues}
+        thresholdValue={thresholdValue}
+        response={graphResponse}
+        services={{}}
+        onMaxYValueCalculated={handleMaxYValueCalculated}
+      />
     </div>
   );
 };

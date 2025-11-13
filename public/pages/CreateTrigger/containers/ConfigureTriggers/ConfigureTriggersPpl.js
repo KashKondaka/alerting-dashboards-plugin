@@ -18,9 +18,124 @@ import DefineTriggerPpl from '../DefineTrigger/DefineTriggerPpl';
 
 const build1hSeriesFromTotal = (pplResp, now = Date.now()) => {
   const HOUR_MS = 60 * 60 * 1000;
+  const FIVE_MIN_MS = 5 * 60 * 1000;
   const total = Number(pplResp?.total ?? pplResp?.datarows?.length ?? 0) || 0;
-  const buckets = [{ key: now - HOUR_MS, doc_count: total }];
-  return {
+
+  // Create 12 buckets at 5-minute intervals over the last hour (matching Discover's behavior)
+  // Start from 1 hour ago, rounded down to the nearest 5-minute interval
+  const startTime = Math.floor((now - HOUR_MS) / FIVE_MIN_MS) * FIVE_MIN_MS;
+  const buckets = [];
+
+  // Create buckets for each 5-minute interval
+  for (let i = 0; i < 12; i++) {
+    const bucketTime = startTime + i * FIVE_MIN_MS;
+    buckets.push({
+      key: bucketTime,
+      key_as_string: new Date(bucketTime).toISOString(),
+      doc_count: 0, // Initialize all buckets to 0
+    });
+  }
+
+  // Try to distribute counts based on actual data timestamps if available
+  const datarows = pplResp?.datarows || [];
+  let distributedCount = 0;
+
+  if (datarows.length > 0) {
+    // Try to find a time field in the datarows
+    const timeFieldNames = ['@timestamp', 'timestamp', 'time', '_time', 'logtime'];
+    let timeField = null;
+
+    // Check first row for time field
+    if (datarows[0] && Array.isArray(datarows[0])) {
+      // If datarows is array of arrays, check schema or first few rows
+      const schema = pplResp?.schema || [];
+      const timeFieldIndex = schema.findIndex((col, idx) =>
+        timeFieldNames.some(
+          (name) =>
+            (col.name && col.name.toLowerCase().includes(name.toLowerCase())) ||
+            (col.alias && col.alias.toLowerCase().includes(name.toLowerCase()))
+        )
+      );
+
+      if (timeFieldIndex >= 0 && datarows[0][timeFieldIndex]) {
+        // Distribute counts to buckets based on timestamps
+        datarows.forEach((row) => {
+          const timeValue = row[timeFieldIndex];
+          if (timeValue) {
+            let timestamp;
+            if (typeof timeValue === 'number') {
+              timestamp = timeValue;
+            } else if (typeof timeValue === 'string') {
+              timestamp = new Date(timeValue).getTime();
+            } else {
+              return; // Skip invalid timestamp
+            }
+
+            if (!isNaN(timestamp) && timestamp > 0) {
+              // Find the bucket for this timestamp
+              const bucketIndex = Math.floor((timestamp - startTime) / FIVE_MIN_MS);
+              if (bucketIndex >= 0 && bucketIndex < buckets.length) {
+                buckets[bucketIndex].doc_count++;
+                distributedCount++;
+              }
+            }
+          }
+        });
+      }
+    } else if (datarows[0] && typeof datarows[0] === 'object') {
+      // If datarows is array of objects, find time field
+      timeField = timeFieldNames.find((name) => datarows[0][name] !== undefined);
+
+      if (timeField) {
+        datarows.forEach((row) => {
+          const timeValue = row[timeField];
+          if (timeValue) {
+            let timestamp;
+            if (typeof timeValue === 'number') {
+              timestamp = timeValue;
+            } else if (typeof timeValue === 'string') {
+              timestamp = new Date(timeValue).getTime();
+            } else {
+              return; // Skip invalid timestamp
+            }
+
+            if (!isNaN(timestamp) && timestamp > 0) {
+              // Find the bucket for this timestamp
+              const bucketIndex = Math.floor((timestamp - startTime) / FIVE_MIN_MS);
+              if (bucketIndex >= 0 && bucketIndex < buckets.length) {
+                buckets[bucketIndex].doc_count++;
+                distributedCount++;
+              }
+            }
+          }
+        });
+      }
+    }
+  }
+
+  // If we couldn't distribute based on timestamps, put total in the most recent bucket
+  if (distributedCount === 0 && total > 0) {
+    // Put total in the most recent bucket (last bucket)
+    buckets[buckets.length - 1].doc_count = total;
+  }
+
+  console.log('[build1hSeriesFromTotal] Creating buckets from PPL response:', {
+    total,
+    datarowsLength: pplResp?.datarows?.length,
+    hasAggregations: !!pplResp?.aggregations,
+    now,
+    startTime,
+    startTimeISO: new Date(startTime).toISOString(),
+    bucketsCreated: buckets.length,
+    bucketsInterval: '5 minutes',
+    distributedCount,
+    buckets: buckets.map((b) => ({
+      time: new Date(b.key).toISOString(),
+      count: b.doc_count,
+    })),
+  });
+
+  const normalized = {
     hits: { total: { value: total, relation: 'eq' } },
     aggregations: {
       ppl_histogram: { buckets },
@@ -29,6 +144,17 @@ const build1hSeriesFromTotal = (pplResp, now = Date.now()) => {
       combined_value: { buckets },
     },
   };
+
+  console.log('[build1hSeriesFromTotal] Returning normalized response:', {
+    ...normalized,
+    bucketsSummary: {
+      count: buckets.length,
+      totalCount: buckets.reduce((sum, b) => sum + b.doc_count, 0),
+      nonZeroBuckets: buckets.filter((b) => b.doc_count > 0).length,
+    },
+  });
+
+  return normalized;
 };
 
 class ConfigureTriggersPpl extends React.Component {
@@ -106,9 +232,52 @@ class ConfigureTriggersPpl extends React.Component {
         query: dataSourceQuery?.query,
       })
       .then((resp) => {
+        console.log('[ConfigureTriggersPpl.onRunExecute] PPL response received:', {
+          ok: resp.ok,
+          hasResp: !!resp.resp,
+          respKeys: resp.resp ? Object.keys(resp.resp) : [],
+          total: resp.resp?.total,
+          hasAggregations: !!resp.resp?.aggregations,
+        });
+
         if (resp.ok) {
           const now = Date.now();
-          const normalized = build1hSeriesFromTotal(resp.resp, now);
+          const pplResp = resp.resp;
+
+          console.log('[ConfigureTriggersPpl.onRunExecute] Processing PPL response:', {
+            hasAggregations: !!pplResp?.aggregations,
+            total: pplResp?.total,
+            datarowsLength: pplResp?.datarows?.length,
+            aggregations: pplResp?.aggregations,
+          });
+
+          // Check if response already has buckets (from time-based aggregations like span)
+          const existingBuckets =
+            _.get(pplResp, 'aggregations.date_histogram.buckets') ||
+            _.get(pplResp, 'aggregations.counts.buckets') ||
+            _.get(pplResp, 'aggregations.count_over_time.buckets') ||
+            _.get(pplResp, 'aggregations.combined_value.buckets') ||
+            _.get(pplResp, 'aggregations.ppl_histogram.buckets') ||
+            [];
+
+          console.log('[ConfigureTriggersPpl.onRunExecute] Existing buckets check:', {
+            existingBuckets,
+            existingBucketsLength: existingBuckets.length,
+            willNormalize: !(existingBuckets && existingBuckets.length > 0),
+          });
+
+          // Only normalize if there are no existing buckets
+          const normalized =
+            existingBuckets && existingBuckets.length > 0
+              ? pplResp
+              : build1hSeriesFromTotal(pplResp, now);
+
+          console.log('[ConfigureTriggersPpl.onRunExecute] Normalized response:', {
+            normalized,
+            normalizedAggregations: normalized?.aggregations,
+            normalizedBuckets: normalized?.aggregations?.ppl_histogram?.buckets,
+          });
+
           const wrapped = {
             ok: true,
             period_start: now - 60 * 60 * 1000,
@@ -116,6 +285,14 @@ class ConfigureTriggersPpl extends React.Component {
             input_results: { results: [normalized] },
             error: null,
           };
+
+          console.log('[ConfigureTriggersPpl.onRunExecute] Wrapped response for state:', {
+            wrapped,
+            inputResults: wrapped.input_results,
+            firstResult: wrapped.input_results?.results?.[0],
+            firstResultAggregations: wrapped.input_results?.results?.[0]?.aggregations,
+          });
+
           this.setState({ executeResponse: wrapped, previewError: null });
         } else {
           this.setState({
