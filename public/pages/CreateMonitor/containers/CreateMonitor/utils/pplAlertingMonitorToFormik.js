@@ -107,7 +107,7 @@ export default function pplAlertingMonitorToFormik(monitorIn) {
 
   let lookBackFormik = {};
   const lookBackMinutes = monitor.look_back_window_minutes ?? monitor.look_back_window;
-  if (lookBackMinutes) {
+  if (lookBackMinutes != null) {
     const minutes = lookBackMinutes;
     lookBackFormik.useLookBackWindow = true;
 
@@ -121,6 +121,9 @@ export default function pplAlertingMonitorToFormik(monitorIn) {
       lookBackFormik.lookBackAmount = minutes;
       lookBackFormik.lookBackUnit = 'minutes';
     }
+  } else {
+    // Explicitly set useLookBackWindow to false when look_back_window_minutes is null or undefined
+    lookBackFormik.useLookBackWindow = false;
   }
 
   return {
