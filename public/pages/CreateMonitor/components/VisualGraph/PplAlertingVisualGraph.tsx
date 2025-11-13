@@ -52,15 +52,8 @@ interface PplAlertingVisualGraphProps {
 }
 
 const processPPLResponseToChartData = (response: any): ChartData | null => {
-  console.log('[PplAlertingVisualGraph.processPPLResponseToChartData] Processing response:', {
-    hasResponse: !!response,
-    hasAggregations: !!response?.aggregations,
-    aggregationsKeys: response?.aggregations ? Object.keys(response.aggregations) : [],
-    responseKeys: response ? Object.keys(response) : [],
-  });
   
   if (!response || !response.aggregations) {
-    console.log('[PplAlertingVisualGraph.processPPLResponseToChartData] Early return: no response or aggregations');
     return null;
   }
 
@@ -71,20 +64,7 @@ const processPPLResponseToChartData = (response: any): ChartData | null => {
     response.aggregations.combined_value?.buckets ||
     [];
 
-  console.log('[PplAlertingVisualGraph.processPPLResponseToChartData] Extracted buckets:', {
-    buckets,
-    bucketsLength: buckets?.length,
-    isArray: Array.isArray(buckets),
-    bucketDetails: buckets?.map(b => ({
-      key: b.key,
-      key_as_string: b.key_as_string,
-      doc_count: b.doc_count,
-      allKeys: Object.keys(b),
-    })),
-  });
-
   if (!Array.isArray(buckets) || buckets.length === 0) {
-    console.log('[PplAlertingVisualGraph.processPPLResponseToChartData] Early return: no valid buckets array');
     return null;
   }
 
@@ -101,14 +81,6 @@ const processPPLResponseToChartData = (response: any): ChartData | null => {
         0
       ) || 0;
 
-      console.log(`[PplAlertingVisualGraph.processPPLResponseToChartData] Processing bucket ${index}:`, {
-        bucket,
-        timestamp,
-        timestampType: typeof timestamp,
-        count,
-        countType: typeof count,
-      });
-
       // Convert timestamp to number
       let x: number;
       if (timestamp instanceof Date) {
@@ -120,35 +92,18 @@ const processPPLResponseToChartData = (response: any): ChartData | null => {
         x = parsedDate.getTime();
       }
 
-      console.log(`[PplAlertingVisualGraph.processPPLResponseToChartData] Bucket ${index} converted:`, {
-        x,
-        y: count,
-        isFiniteX: Number.isFinite(x),
-        isFiniteY: Number.isFinite(count),
-        xGreaterThanZero: x > 0,
-        isNaNX: isNaN(x),
-        willInclude: Number.isFinite(x) && Number.isFinite(count) && x > 0 && !isNaN(x),
-      });
-
       // Only include valid timestamps and counts
       // Allow count to be 0 (empty buckets) but require valid timestamp
       if (Number.isFinite(x) && Number.isFinite(count) && x > 0 && !isNaN(x)) {
         return { x, y: count };
       }
       
-      console.log(`[PplAlertingVisualGraph.processPPLResponseToChartData] Bucket ${index} filtered out`);
       return null;
     })
     .filter(Boolean)
     .sort((a: any, b: any) => a.x - b.x);
 
-  console.log('[PplAlertingVisualGraph.processPPLResponseToChartData] Final values:', {
-    values,
-    valuesLength: values.length,
-  });
-
   if (values.length === 0) {
-    console.log('[PplAlertingVisualGraph.processPPLResponseToChartData] Early return: no valid values after processing');
     return null;
   }
 
@@ -204,15 +159,6 @@ const processPPLResponseToChartData = (response: any): ChartData | null => {
     intervalValue = intervalMs / 1000;
   }
   
-  console.log('[PplAlertingVisualGraph.processPPLResponseToChartData] Calculated interval:', {
-    intervalMs,
-    intervalUnit,
-    intervalValue,
-    minTime: new Date(minTime).toISOString(),
-    maxTime: new Date(maxTime).toISOString(),
-    valuesCount: values.length,
-  });
-  
   // Create chart data structure similar to Discover
   const chartData: ChartData = {
     values,
@@ -248,8 +194,6 @@ export const PplAlertingVisualGraph: React.FC<PplAlertingVisualGraphProps> = ({
   }, [response]);
 
   const timefilterUpdateHandler = useCallback((ranges: { from: number; to: number }) => {
-    // Handle time filter updates if needed
-    console.log('Time filter update:', ranges);
   }, []);
 
   const dataToUse = chartData?.values ?? [];
@@ -313,17 +257,6 @@ export const PplAlertingVisualGraph: React.FC<PplAlertingVisualGraphProps> = ({
       min: domainMin,
       max: domainMax,
     };
-    
-    console.log('[PplAlertingVisualGraph] Calculated xDomain:', {
-      domainStart: domainStart ? new Date(domainStart).toISOString() : null,
-      domainEnd: domainEnd ? new Date(domainEnd).toISOString() : null,
-      firstDataX: firstDataX ? new Date(firstDataX).toISOString() : null,
-      lastDataX: lastDataX ? new Date(lastDataX).toISOString() : null,
-      domainMin: new Date(domainMin).toISOString(),
-      domainMax: new Date(domainMax).toISOString(),
-      xInterval,
-      dataPoints: data.length,
-    });
 
     // Calculate Y domain - use threshold value to set Y-axis scale
     const yValues = data.map(d => d.y).filter(y => y != null && !isNaN(y));
