@@ -738,6 +738,7 @@ export default class DashboardClassic extends Component {
               <DashboardEmptyPrompt
                 onCreateTrigger={onCreateTrigger}
                 landingDataSourceId={this.props.landingDataSourceId}
+                viewMode={viewMode}
               />
             }
             data-test-subj={'alertsDashboard_table'}
