@@ -20,16 +20,20 @@ describe('getOverviewStatsV2', () => {
 
     const stats = getOverviewStatsV2(monitor, monitorId, activeCount);
 
-    expect(stats).toHaveLength(5);
-    expect(stats[0]).toEqual({ header: 'Total active alerts', value: activeCount });
-    expect(stats[1].header).toBe('Schedule');
-    expect(stats[2].header).toBe('Last updated');
-    expect(stats[3]).toEqual({ header: 'Monitor ID', value: monitorId });
-    expect(stats[4]).toEqual({ header: 'Description', value: 'Example description' });
+    expect(stats).toHaveProperty('firstRow');
+    expect(stats).toHaveProperty('secondRow');
+    expect(stats.firstRow).toHaveLength(5);
+    expect(stats.firstRow[0]).toEqual({ header: 'Total active alerts', value: activeCount });
+    expect(stats.firstRow[1].header).toBe('Schedule');
+    expect(stats.firstRow[2].header).toBe('Look back window');
+    expect(stats.firstRow[3].header).toBe('Last updated');
+    expect(stats.firstRow[4]).toEqual({ header: 'Monitor ID', value: monitorId });
+    expect(stats.secondRow).toHaveLength(1);
+    expect(stats.secondRow[0]).toEqual({ header: 'Description', value: 'Example description' });
   });
 
   test('handles missing fields gracefully', () => {
     const stats = getOverviewStatsV2({}, 'id-1');
-    expect(stats[4]).toEqual({ header: 'Description', value: DEFAULT_EMPTY_DATA });
+    expect(stats.secondRow[0]).toEqual({ header: 'Description', value: DEFAULT_EMPTY_DATA });
   });
 });

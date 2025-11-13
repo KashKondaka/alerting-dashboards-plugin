@@ -63,7 +63,7 @@ const MonitorOverviewV2 = ({
 
   const onFlyoutClose = () => setFlyoutData(undefined);
 
-  const items = getOverviewStatsV2(monitor, monitorId, activeCount);
+  const { firstRow, secondRow } = getOverviewStatsV2(monitor, monitorId, activeCount);
 
   return (
     <>
@@ -75,13 +75,40 @@ const MonitorOverviewV2 = ({
         />
       )}
       <ContentPanel title="Overview" titleSize="s">
-        <EuiFlexGroup gutterSize="xl" wrap={false} responsive={false} justifyContent="spaceBetween">
-          {items.map((props) => (
-            <EuiFlexItem key={props.header} grow={true}>
-              <OverviewStat {...props} />
-            </EuiFlexItem>
-          ))}
-          {relatedMonitorsStat}
+        <EuiFlexGroup direction="column" gutterSize="m">
+          <EuiFlexItem>
+            <EuiFlexGroup
+              gutterSize="xl"
+              wrap={false}
+              responsive={false}
+              justifyContent="spaceBetween"
+            >
+              {firstRow.map((props) => (
+                <EuiFlexItem key={props.header} grow={true}>
+                  <OverviewStat {...props} />
+                </EuiFlexItem>
+              ))}
+              {relatedMonitorsStat}
+            </EuiFlexGroup>
+          </EuiFlexItem>
+          <EuiFlexItem>
+            <EuiFlexGroup gutterSize="xl" wrap={true} responsive={false} alignItems="flexStart">
+              {secondRow.map((props) => (
+                <EuiFlexItem
+                  key={props.header}
+                  grow={false}
+                  style={{
+                    minWidth: '200px',
+                    maxWidth: '100%',
+                    flexBasis: 'auto',
+                    flexGrow: 1,
+                  }}
+                >
+                  <OverviewStat {...props} />
+                </EuiFlexItem>
+              ))}
+            </EuiFlexGroup>
+          </EuiFlexItem>
         </EuiFlexGroup>
       </ContentPanel>
     </>

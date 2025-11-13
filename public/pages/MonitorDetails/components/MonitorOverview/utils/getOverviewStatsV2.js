@@ -19,7 +19,7 @@ export default function getOverviewStatsV2(monitor, monitorId, activeCount = 0) 
   const lookBackWindowMinutes =
     monitor?.look_back_window_minutes ?? monitor?.look_back_window ?? undefined;
 
-  return [
+  const firstRow = [
     {
       header: 'Total active alerts',
       value: activeCount,
@@ -40,9 +40,17 @@ export default function getOverviewStatsV2(monitor, monitorId, activeCount = 0) 
       header: 'Monitor ID',
       value: monitorId,
     },
+  ];
+
+  const secondRow = [
     {
       header: 'Description',
       value: monitor.description || DEFAULT_EMPTY_DATA,
     },
   ];
+
+  return {
+    firstRow,
+    secondRow,
+  };
 }

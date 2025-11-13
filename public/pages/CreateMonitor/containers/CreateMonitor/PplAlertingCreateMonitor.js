@@ -453,7 +453,7 @@ class PplAlertingCreateMonitor extends Component {
             value={values.description || ''}
             onChange={(e) => {
               const value = e.target.value;
-              if (value.length <= 10000) {
+              if (value.length <= 500) {
                 setFieldValue('description', value);
               }
             }}
@@ -462,7 +462,7 @@ class PplAlertingCreateMonitor extends Component {
           />
           {values.description && (
             <EuiText size="xs" color="subdued" style={{ marginTop: '4px' }}>
-              {values.description.length} / 10,000 characters
+              {values.description.length} / 500 characters
             </EuiText>
           )}
         </>
