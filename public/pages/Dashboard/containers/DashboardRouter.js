@@ -16,14 +16,6 @@ const DashboardRouter = (props) => {
   const pplEnabled = isPplAlertingEnabled();
 
   const computeInitialView = () => {
-    console.log('[DashboardRouter] computeInitialView', {
-      pplEnabled,
-      initialViewMode,
-      stored:
-        typeof window !== 'undefined'
-          ? window.localStorage?.getItem(DASHBOARD_VIEW_MODE_STORAGE_KEY)
-          : undefined,
-    });
     if (!pplEnabled) {
       return 'classic';
     }
@@ -46,12 +38,10 @@ const DashboardRouter = (props) => {
   };
 
   const [viewMode, setViewMode] = useState(computeInitialView);
-  console.log('[DashboardRouter] init', { viewMode, pplEnabled, perAlertView });
 
   useEffect(() => {
     if (!pplEnabled && viewMode !== 'classic') {
       setViewMode('classic');
-      console.log('[DashboardRouter] forcing classic because ppl disabled');
     }
   }, [pplEnabled, viewMode]);
 
@@ -64,7 +54,6 @@ const DashboardRouter = (props) => {
         console.log('[DashboardRouter] error writing viewMode to storage', e);
       }
     }
-    console.log('[DashboardRouter] viewMode effect', { viewMode, pplEnabled });
   }, [viewMode, pplEnabled]);
 
   const options = useMemo(
@@ -79,14 +68,12 @@ const DashboardRouter = (props) => {
   );
 
   const handleViewModeChange = (id) => {
-    console.log('[DashboardRouter] handleViewModeChange', { id });
     setViewMode(id);
   };
 
   const showToggle = pplEnabled && !perAlertView;
 
   const ViewComponent = viewMode === 'classic' ? DashboardClassic : DashboardPpl;
-  console.log('[DashboardRouter] rendering', { viewMode, showToggle, perAlertView });
 
   return (
     <ViewComponent
