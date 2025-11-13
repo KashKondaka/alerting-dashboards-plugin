@@ -590,6 +590,7 @@ export default class MonitorDetailsV2 extends Component {
         groupBy={groupBy}
         setFlyout={setFlyout}
         onTotalsChange={this.handleAlertsTotals}
+        hideActionsAndComments={true}
       />
     );
   };

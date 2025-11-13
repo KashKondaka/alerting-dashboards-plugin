@@ -598,7 +598,7 @@ export default class DashboardPpl extends Component {
           break;
       }
 
-      if (commentsEnabled) {
+      if (commentsEnabled && !this.props.hideActionsAndComments) {
         columns = appendCommentsAction(columns, httpClient);
       }
     } else {
