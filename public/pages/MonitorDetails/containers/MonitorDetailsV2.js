@@ -140,6 +140,16 @@ export default class MonitorDetailsV2 extends Component {
     if (this.state.monitorVersion !== prevState.monitorVersion && !prevState.loading) {
       this.getMonitor(this.props.match.params.monitorId);
     }
+
+    // Refresh monitor when entering edit mode to ensure we have the latest data
+    const prevAction = queryString.parse(prevProps.location.search).action;
+    const currentAction = queryString.parse(this.props.location.search).action;
+    if (
+      prevAction !== MONITOR_ACTIONS.EDIT_MONITOR &&
+      currentAction === MONITOR_ACTIONS.EDIT_MONITOR
+    ) {
+      this.getMonitor(this.props.match.params.monitorId);
+    }
   }
 
   componentWillUnmount() {
@@ -202,12 +212,13 @@ export default class MonitorDetailsV2 extends Component {
     });
   };
 
-  getMonitorFromApi = (id, { treatAsWorkflow = false } = {}) => {
+  getMonitorFromApi = async (id, { treatAsWorkflow = false, useV2Endpoint = false } = {}) => {
     const dataSourceQuery = getDataSourceQueryObj();
     const { httpClient, viewMode } = this.props;
     const encodedId = encodeURIComponent(id);
 
-    if (viewMode === 'new') {
+    // Use v2 endpoint if explicitly requested, or if viewMode is 'new'
+    if (viewMode === 'new' || useV2Endpoint) {
       return httpClient.get(`../api/alerting/v2/monitors/${encodedId}`, dataSourceQuery);
     }
 
@@ -219,7 +230,20 @@ export default class MonitorDetailsV2 extends Component {
     const fetchMonitor = async () => {
       try {
         const isWorkflow = this.isWorkflow();
-        const resp = await this.getMonitorFromApi(id, { treatAsWorkflow: isWorkflow });
+        // First try to fetch - if it's a PPL monitor, we'll detect it and retry with v2 endpoint
+        let resp = await this.getMonitorFromApi(id, { treatAsWorkflow: isWorkflow });
+
+        // If the response indicates it's a PPL monitor (query_language === 'ppl'),
+        // ALWAYS use v2 endpoint to get the latest data structure (v2 endpoint has better consistency)
+        if (resp?.ok && resp?.resp?.query_language === 'ppl' && this.props.viewMode !== 'new') {
+          const v2Resp = await this.getMonitorFromApi(id, {
+            treatAsWorkflow: isWorkflow,
+            useV2Endpoint: true,
+          });
+          if (v2Resp?.ok) {
+            resp = v2Resp;
+          }
+        }
 
         if (resp?.ok) {
           const {
@@ -244,6 +268,15 @@ export default class MonitorDetailsV2 extends Component {
               pplMonitor.last_update_time ?? normalizedMonitor.last_update_time;
             normalizedMonitor.timestamp_field =
               pplMonitor.timestamp_field ?? normalizedMonitor.timestamp_field;
+            // Copy look_back_window_minutes from pplMonitor to root level for proper editing
+            normalizedMonitor.look_back_window_minutes =
+              pplMonitor.look_back_window_minutes ?? normalizedMonitor.look_back_window_minutes;
+          } else {
+            // If pplMonitor is null, the response is flat - ensure look_back_window_minutes is preserved
+            // It should already be in normalizedMonitor from migrateTriggerMetadata, but ensure it's there
+            if (monitorPayload?.look_back_window_minutes !== undefined) {
+              normalizedMonitor.look_back_window_minutes = monitorPayload.look_back_window_minutes;
+            }
           }
 
           const monitorIdentifier = monitorPayload?.id || normalizedMonitor?.id || id;
@@ -275,7 +308,6 @@ export default class MonitorDetailsV2 extends Component {
           this.props.history.push('/monitors');
         }
       } catch (err) {
-        console.log('[MonitorDetailsV2] getMonitor error', err);
         this.props.history.push('/monitors');
       }
     };
@@ -622,6 +654,7 @@ export default class MonitorDetailsV2 extends Component {
     if (updatingMonitor) {
       return (
         <CreateMonitor
+          key={`monitor-edit-${monitor?._seq_no}`}
           edit={true}
           updateMonitor={this.updateMonitor}
           monitorToEdit={monitor}

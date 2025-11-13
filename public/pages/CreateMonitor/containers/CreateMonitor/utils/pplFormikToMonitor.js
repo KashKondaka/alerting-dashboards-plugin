@@ -239,12 +239,30 @@ export const buildPPLMonitorFromFormik = (values) => {
     triggers,
   };
 
-  if (lookBack && values.timestampField) {
+  // Explicitly handle look back window: set to null if disabled, or set value if enabled
+  const useLookBackWindow = values?.useLookBackWindow ?? true;
+  if (!useLookBackWindow) {
+    // useLookBackWindow is false - explicitly set to null to clear the value
+    monitor.look_back_window_minutes = null;
+    monitor.timestamp_field = null;
+  } else if (lookBack && values.timestampField) {
+    // useLookBackWindow is true - set the calculated minutes and timestamp field
     monitor.look_back_window_minutes = lookBack;
     monitor.timestamp_field = values.timestampField;
   }
 
-  return {
+  const result = {
     ppl_monitor: monitor,
   };
+
+  // Also set look_back_window_minutes at root level since API returns it there
+  // This ensures the backend properly updates the value
+  if (monitor.look_back_window_minutes !== undefined) {
+    result.look_back_window_minutes = monitor.look_back_window_minutes;
+  }
+  if (monitor.timestamp_field !== undefined) {
+    result.timestamp_field = monitor.timestamp_field;
+  }
+
+  return result;
 };

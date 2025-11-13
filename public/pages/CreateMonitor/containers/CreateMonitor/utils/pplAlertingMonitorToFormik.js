@@ -123,10 +123,11 @@ export default function pplAlertingMonitorToFormik(monitorIn) {
     }
   } else {
     // Explicitly set useLookBackWindow to false when look_back_window_minutes is null or undefined
+    // Don't include lookBackAmount and lookBackUnit to prevent old values from persisting
     lookBackFormik.useLookBackWindow = false;
   }
 
-  return {
+  const result = {
     ...formikValues,
     name,
     description,
@@ -145,6 +146,15 @@ export default function pplAlertingMonitorToFormik(monitorIn) {
     ...(monitor.timestamp_field ? { timestampField } : {}),
     ...lookBackFormik,
   };
+
+  // When useLookBackWindow is false, explicitly clear lookBackAmount and lookBackUnit
+  // to prevent default values from FORMIK_INITIAL_VALUES from persisting
+  if (!lookBackFormik.useLookBackWindow) {
+    result.lookBackAmount = undefined;
+    result.lookBackUnit = undefined;
+  }
+
+  return result;
 }
 
 export function indicesToFormik(indices) {

@@ -71,12 +71,24 @@ class PplAlertingCreateMonitor extends Component {
     const { location, edit, monitorToEdit } = props;
     const initial = getInitialValues({ location, monitorToEdit, edit });
     const pplEnabled = isPplAlertingEnabled();
+    // When editing, useLookBackWindow is set by pplAlertingMonitorToFormik based on monitor data
+    // When creating new, default to true if not specified
+    // Use explicit check to ensure false values from pplAlertingMonitorToFormik are preserved
+    const useLookBackWindow =
+      initial.useLookBackWindow !== undefined ? initial.useLookBackWindow : true;
     const initialValues = {
       ...initial,
       monitor_mode: initial.monitor_mode || (pplEnabled ? 'ppl' : 'legacy'),
-      useLookBackWindow: initial.useLookBackWindow ?? true,
-      lookBackAmount: initial.lookBackAmount ?? 1,
-      lookBackUnit: initial.lookBackUnit || 'hours',
+      useLookBackWindow,
+      // Only set default lookBackAmount/lookBackUnit if useLookBackWindow is true
+      // When editing with null look back window, these should be undefined to prevent showing old values
+      lookBackAmount:
+        initial.lookBackAmount !== undefined
+          ? initial.lookBackAmount
+          : useLookBackWindow
+          ? 1
+          : undefined,
+      lookBackUnit: initial.lookBackUnit || (useLookBackWindow ? 'hours' : undefined),
       timestampField: initial.timestampField || '@timestamp',
     };
 
@@ -622,7 +634,17 @@ class PplAlertingCreateMonitor extends Component {
               if (dateFieldsError && availableDateFields.length === 0) {
                 setFieldValue('useLookBackWindow', false);
               } else {
-                setFieldValue('useLookBackWindow', e.target.checked);
+                const checked = e.target.checked;
+                setFieldValue('useLookBackWindow', checked);
+                // When checking the box, initialize lookBackAmount and lookBackUnit if they're undefined
+                if (checked) {
+                  if (values.lookBackAmount === undefined || values.lookBackAmount === null) {
+                    setFieldValue('lookBackAmount', 1);
+                  }
+                  if (!values.lookBackUnit) {
+                    setFieldValue('lookBackUnit', 'hours');
+                  }
+                }
               }
             }}
             data-test-subj="pplUseLookBack"

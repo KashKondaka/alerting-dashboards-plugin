@@ -116,8 +116,9 @@ export const getInitialValues = ({
 
     const normalizedTriggers = rawTriggers.map((trigger) => triggerToFormikPpl(trigger));
 
+    const convertedValues = pplAlertingMonitorToFormik(monitorToEdit);
     initialValues = {
-      ...pplAlertingMonitorToFormik(monitorToEdit),
+      ...convertedValues,
       triggerDefinitions: normalizedTriggers,
     };
     const isPpl =
