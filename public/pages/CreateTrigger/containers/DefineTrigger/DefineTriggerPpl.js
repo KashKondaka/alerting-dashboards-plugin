@@ -498,6 +498,8 @@ class DefineTriggerPpl extends Component {
                 showModeSelector={false}
                 errorMessage={graphErrorMessage || previewError}
                 thresholdFieldName="num_results_value"
+                httpClient={httpClient}
+                monitor={monitor}
               />
             </EuiPanel>
           </div>

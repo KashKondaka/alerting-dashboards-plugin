@@ -8,7 +8,8 @@ import PropTypes from 'prop-types';
 import _ from 'lodash';
 import { EuiSpacer, EuiText, EuiRadioGroup } from '@elastic/eui';
 import { Field } from 'formik';
-import { PplAlertingVisualGraph } from '../../CreateMonitor/components/VisualGraph/PplAlertingVisualGraph';
+import { useOpenSearchDashboards } from '../../../../../../src/plugins/opensearch_dashboards_react/public';
+import { PplAlertingHistogramWrapper } from '../../CreateMonitor/components/VisualGraph';
 import TriggerExpressionsPpl from './TriggerExpressions/TriggerExpressionsPpl';
 
 const TriggerGraphPpl = ({
@@ -22,7 +23,24 @@ const TriggerGraphPpl = ({
   showModeSelector = false,
   errorMessage,
   thresholdFieldName = 'thresholdValue',
+  httpClient,
+  monitor,
 }) => {
+  const { services } = useOpenSearchDashboards();
+  const { data, uiSettings } = services || {};
+
+  // Debug: Log to verify component is being used
+  useEffect(() => {
+    console.log('[TriggerGraphPpl] Component rendered with:', {
+      hasServices: !!services,
+      hasData: !!data,
+      hasUiSettings: !!uiSettings,
+      hasHttpClient: !!httpClient,
+      hasMonitor: !!monitor,
+      monitorValuesPplQuery: monitorValues?.pplQuery,
+      monitorPplQuery: monitor?.ppl_monitor?.query,
+    });
+  }, [services, data, uiSettings, httpClient, monitor, monitorValues]);
   const hasSetInitialThreshold = useRef(false);
   const [graphKey, setGraphKey] = useState(0);
   const formikHelperRef = useRef(null);
@@ -171,14 +189,54 @@ const TriggerGraphPpl = ({
           {errorMessage}
         </EuiText>
       ) : (
-        <PplAlertingVisualGraph
-          key={graphKey}
-          values={monitorValues}
-          thresholdValue={thresholdValue}
-          response={graphResponse}
-          services={{}}
-          onMaxYValueCalculated={handleMaxYValueCalculated}
-        />
+        <>
+          {/* Use new histogram component with date picker and refresh */}
+          {(() => {
+            // Try multiple paths to get the PPL query
+            const pplQuery =
+              monitorValues?.pplQuery || monitor?.ppl_monitor?.query || monitor?.query || '';
+
+            // Get timestamp field and look back window values from monitorValues
+            const timestampField = monitorValues?.timestampField || monitorValues?.timeField;
+            const useLookBackWindow =
+              monitorValues?.useLookBackWindow !== undefined
+                ? monitorValues.useLookBackWindow
+                : true;
+            const lookBackAmount = monitorValues?.lookBackAmount ?? 1;
+            const lookBackUnit = monitorValues?.lookBackUnit || 'hours';
+
+            // Always try to render the new component if we have the required services
+            // The component will handle empty queries gracefully and check for timestamp field
+            if (httpClient && data && uiSettings && services) {
+              return (
+                <PplAlertingHistogramWrapper
+                  query={pplQuery || ''}
+                  httpClient={httpClient}
+                  dataSourceId={monitorValues?.dataSourceId || monitor?.dataSourceId}
+                  timeField={timestampField}
+                  config={uiSettings}
+                  data={data}
+                  services={services}
+                  showHistogram={true}
+                  useLookBackWindow={useLookBackWindow}
+                  lookBackAmount={lookBackAmount}
+                  lookBackUnit={lookBackUnit}
+                />
+              );
+            }
+
+            // Fallback message if services are missing
+            return (
+              <div style={{ padding: '20px', textAlign: 'center' }}>
+                <EuiText size="s" color="subdued">
+                  {!httpClient && 'HTTP client not available. '}
+                  {(!data || !uiSettings || !services) && 'Services not available. '}
+                  Loading histogram component...
+                </EuiText>
+              </div>
+            );
+          })()}
+        </>
       )}
     </div>
   );
@@ -195,6 +253,8 @@ TriggerGraphPpl.propTypes = {
   showModeSelector: PropTypes.bool,
   errorMessage: PropTypes.string,
   thresholdFieldName: PropTypes.string,
+  httpClient: PropTypes.object,
+  monitor: PropTypes.object,
 };
 
 export default TriggerGraphPpl;

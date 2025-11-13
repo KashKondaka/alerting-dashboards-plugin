@@ -466,19 +466,62 @@ export const runPPLPreview = async (httpClient, { queryText, dataSourceId } = {}
   const query = { ...(dataSourceQuery?.query || {}) };
   if (dataSourceId) query['dataSourceId'] = dataSourceId;
 
+  console.log('[runPPLPreview] Executing PPL query:', {
+    queryText,
+    dataSourceId,
+    queryParams: query,
+    httpClientExists: !!httpClient,
+  });
+
   try {
     const resp = await httpClient.post('/_plugins/_ppl', {
       body: JSON.stringify({ query: queryText || '' }),
       query,
     });
+
+    console.log('[runPPLPreview] API response:', {
+      ok: resp.ok,
+      status: resp.status,
+      respType: typeof resp.resp,
+      respKeys: resp.resp ? Object.keys(resp.resp) : [],
+      respMessage: resp?.resp?.message,
+      respError: resp?.resp?.error,
+      fullResp: JSON.stringify(resp).substring(0, 500),
+    });
+
     if (!resp.ok) {
+      // Try to extract more detailed error information
+      const errorBody = resp?.body || resp?.resp;
+      const errorMessage =
+        errorBody?.message ||
+        errorBody?.error?.message ||
+        errorBody?.error?.reason ||
+        resp?.resp?.message ||
+        resp?.resp?.error ||
+        'Incorrect data source or invalid query';
+      const errorDetails = errorBody?.error?.details || errorBody?.error || resp?.resp?.error;
+      console.error('[runPPLPreview] Query failed:', {
+        error: errorMessage,
+        errorDetails: errorDetails,
+        fullResp: resp.resp,
+        fullBody: errorBody,
+        status: resp.status,
+        response: resp,
+      });
       return {
         ok: false,
-        error: resp?.resp?.message || 'Incorrect data source or invalid query',
+        error: errorMessage,
       };
     }
     return resp.resp;
   } catch (err) {
+    console.error('[runPPLPreview] Exception caught:', {
+      error: err,
+      errorMessage: err?.message,
+      errorBody: err?.body,
+      errorBodyMessage: err?.body?.message,
+      errorStack: err?.stack,
+    });
     return {
       ok: false,
       error: err?.body?.message || err?.message || 'Incorrect data source or invalid query',

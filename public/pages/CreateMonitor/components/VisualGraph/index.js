@@ -5,5 +5,7 @@
 
 import VisualGraph from './VisualGraph';
 export { PplAlertingVisualGraph } from './PplAlertingVisualGraph';
+export { AlertingHistogramChart } from './AlertingHistogramChart';
+export { PplAlertingHistogramWrapper } from './PplAlertingHistogramWrapper';
 
 export default VisualGraph;

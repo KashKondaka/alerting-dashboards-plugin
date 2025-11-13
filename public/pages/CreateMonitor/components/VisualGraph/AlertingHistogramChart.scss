@@ -1,0 +1,44 @@
+.alertingHistogram__header--partial {
+  font-weight: $euiFontWeightRegular;
+  min-width: $euiSize * 12;
+}
+
+// Temporary override to inlined styles provided by ElasticCharts theming
+// Will be unnecessary when we migrate the histogram to a different rendering library:
+// https://github.com/opensearch-project/OpenSearch-Dashboards/issues/4643
+.alertingHistogram .echChartBackground {
+  background-color: inherit !important;
+}
+
+.alertingChart__wrapper {
+  &--enhancement {
+    gap: $euiSizeS;
+    flex-grow: 0;
+    flex-wrap: nowrap;
+  }
+
+  .alertingChart__chartheader {
+    align-items: center;
+  }
+}
+
+.alertingChart__TimechartHeader {
+  padding-top: $euiSizeXS;
+
+  &__logCount {
+    margin-right: auto !important;
+
+    &__text {
+      font-weight: 600;
+    }
+  }
+
+  &__selection {
+    background-color: $euiColorEmptyShade;
+
+    &__prependText {
+      font-weight: 600;
+    }
+  }
+}
+
