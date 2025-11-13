@@ -15,7 +15,8 @@ import {
   Settings,
   TooltipType,
 } from '@elastic/charts';
-import { EuiFlexGroup, EuiFlexItem, EuiText } from '@elastic/eui';
+import { EuiFlexGroup, EuiFlexItem, EuiText} from '@elastic/eui';
+import { euiThemeVars } from '@osd/ui-shared-deps/theme';
 import moment from 'moment-timezone';
 import './PplAlertingVisualGraph.scss';
 
@@ -322,7 +323,7 @@ export const PplAlertingVisualGraph: React.FC<PplAlertingVisualGraphProps> = ({
 
   const lineAnnotationStyle = {
     line: {
-      stroke: '#e74c3c',
+      stroke: 'euiThemeVars.euiColorDanger',
       strokeWidth: 2,
       opacity: 0.8,
       dash: [5, 5],
