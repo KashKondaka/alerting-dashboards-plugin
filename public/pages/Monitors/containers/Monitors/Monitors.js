@@ -130,35 +130,52 @@ export default class Monitors extends Component {
           ])
         : new Set();
 
+    const actions = [];
+
+    // Ack is not valid action for PPL monitor
+    if (viewMode === 'classic') {
+      actions.push({
+        name: 'Acknowledge',
+        description: 'Acknowledge this Monitor',
+        onClick: this.onClickAcknowledge,
+      });
+    }
+
+    actions.push(
+      {
+        name: 'Edit',
+        description: 'Edit this Monitor',
+        onClick: (item) => {
+          this.setState({ selectedItems: [item] }, () => {
+            this.onClickEdit();
+          });
+        },
+      },
+      {
+        name: 'Enable',
+        description: 'Enable this Monitor',
+        onClick: this.onClickEnable,
+        available: (item) => !item.enabled,
+      },
+      {
+        name: 'Disable',
+        description: 'Disable this Monitor',
+        onClick: this.onClickDisable,
+        available: (item) => item.enabled,
+      },
+      {
+        name: 'Delete',
+        description: 'Delete this Monitor',
+        onClick: this.onClickDelete,
+      }
+    );
+
     return [
       ...staticColumns.filter((column) => !hiddenColumns.has(column.name)),
       {
         name: 'Actions',
         width: '60px',
-        actions: [
-          {
-            name: 'Acknowledge',
-            description: 'Acknowledge this Monitor',
-            onClick: this.onClickAcknowledge,
-          },
-          {
-            name: 'Enable',
-            description: 'Enable this Monitor',
-            onClick: this.onClickEnable,
-            available: (item) => !item.enabled,
-          },
-          {
-            name: 'Disable',
-            description: 'Disable this Monitor',
-            onClick: this.onClickDisable,
-            available: (item) => item.enabled,
-          },
-          {
-            name: 'Delete',
-            description: 'Delete this Monitor',
-            onClick: this.onClickDelete,
-          },
-        ],
+        actions,
       },
     ];
   }
