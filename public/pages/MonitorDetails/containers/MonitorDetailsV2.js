@@ -214,7 +214,7 @@ export default class MonitorDetailsV2 extends Component {
   updateDelegateMonitors = async (monitor) => {
     const getMonitor = async (id) => {
       try {
-        const resp = await this.getMonitorFromApi(id, { treatAsWorkflow: false });
+        const resp = await this.getMonitorFromApi(id);
         return resp?.ok ? resp.resp : undefined;
       } catch (err) {
         console.error('err', err);
@@ -257,21 +257,8 @@ export default class MonitorDetailsV2 extends Component {
   getMonitor = (id) => {
     const fetchMonitor = async () => {
       try {
-        const isWorkflow = this.isWorkflow();
-        // First try to fetch - if it's a PPL monitor, we'll detect it and retry with v2 endpoint
-        let resp = await this.getMonitorFromApi(id, { treatAsWorkflow: isWorkflow });
-
-        // If the response indicates it's a PPL monitor (query_language === 'ppl'),
-        // ALWAYS use v2 endpoint to get the latest data structure (v2 endpoint has better consistency)
-        if (resp?.ok && resp?.resp?.query_language === 'ppl' && this.props.viewMode !== 'new') {
-          const v2Resp = await this.getMonitorFromApi(id, {
-            treatAsWorkflow: isWorkflow,
-            useV2Endpoint: true,
-          });
-          if (v2Resp?.ok) {
-            resp = v2Resp;
-          }
-        }
+        // MonitorDetailsV2 always uses v2 endpoint (viewMode is always 'new')
+        const resp = await this.getMonitorFromApi(id);
 
         if (resp?.ok) {
           const {
@@ -283,6 +270,7 @@ export default class MonitorDetailsV2 extends Component {
             ifPrimaryTerm,
           } = resp;
 
+          const isWorkflow = this.isWorkflow();
           if (isWorkflow) {
             this.updateDelegateMonitors(monitorPayload);
           }
